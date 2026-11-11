@@ -20,6 +20,7 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
 #main{flex:1;display:flex;min-height:0;position:relative}
 .arrow{position:absolute;top:8px;left:8px;z-index:5;width:44px;height:44px;background:rgba(22,25,27,.85);color:var(--text);font-size:22px;padding:0;min-width:0}
 #nextSt{left:58px}
+#menuB{left:108px;font-size:20px}
 #pages{flex:1;min-width:0;display:flex;min-height:0}
 .page{flex:1;display:none;min-height:0;min-width:0}
 .page.active{display:flex}
@@ -50,6 +51,16 @@ th{color:var(--dim);font-weight:normal;text-align:right;padding:3px 6px;position
 td{text-align:right;padding:5px 6px}
 th:first-child,td:first-child{text-align:left}
 tr.unk td:first-child{color:var(--unk)}
+tr.ally td:first-child{color:#4da3ff}
+tr.host td:first-child{color:#ff4a4a}
+tr.lost{opacity:.45}
+.tags button{flex:1;padding:10px 2px;font-size:12px}
+button:disabled{opacity:.35}
+#selInfo{color:var(--dim);margin-bottom:6px}
+.ov{position:fixed;inset:0;z-index:20;background:rgba(0,0,0,.94);display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px}
+.ov.show{display:flex}
+.ov h1{margin:0 0 10px;letter-spacing:4px;font-weight:normal}
+.ov button{width:220px;padding:14px}
 tr.sel{background:#2a2f33}
 @media (max-width:760px){
   #navPage{flex-direction:column}
@@ -76,8 +87,14 @@ tr.sel{background:#2a2f33}
           <div id="side">
             <button id="tHead">TRACKS: <span id="tcount">0</span> ▾</button>
             <div id="tList"><table>
-              <thead><tr><th>TRK</th><th>CAT</th><th>BRG</th><th>RNG</th></tr></thead>
+              <thead><tr><th>TRK</th><th>TAG</th><th>BRG</th><th>RNG</th></tr></thead>
               <tbody id="tbody"></tbody></table></div>
+
+            <div class="sec">
+              <h5>CONTACT</h5>
+              <div id="selInfo">No contact selected</div>
+              <div class="row tags"><button data-t="unk">UNKNOWN</button><button data-t="ally">ALLY</button><button data-t="host">HOSTILE</button></div>
+            </div>
 
             <div class="sec">
               <h5>SPEED</h5>
@@ -118,8 +135,11 @@ tr.sel{background:#2a2f33}
       </div>
     </div>
     <button class="arrow" id="nextSt">&rsaquo;</button>
+    <button class="arrow" id="menuB">&#9776;</button>
   </div>
 </div>
+<div class="ov show" id="menu"><h1>EMCON</h1><button id="startB">START</button><button id="setB">&#9881; SETTINGS</button></div>
+<div class="ov" id="settings"><h1>SETTINGS</h1><div class="row"><span class="lbl">Radar sweep</span><button id="sweepB" style="width:100px">On</button></div><button id="backB">BACK</button></div>
 <script src="sim.js"></script>
 <script>
 "use strict";
@@ -146,10 +166,11 @@ const TS=[1,5,20];
 const ship=Sim.newShip();
 const LAT0=41+11.295/60, LON0=21+26.496/60;
 const contacts=[ [1,143,28.7],[2,255,32.1],[3,260,0.9],[4,243,154],[5,197,65.8],
-  [6,199,216],[7,351,214],[8,17,12.4],[9,88,44.0],[10,312,8.2]
-].map(([id,b,r])=>({id,cat:"SRF",cls:"unk",
-  x:Math.sin(b*Math.PI/180)*r, y:Math.cos(b*Math.PI/180)*r}));
-const S={ri:4,rings:true,labels:true,grid:true,sel:null,hup:false,ts:0};
+  [6,199,216],[7,351,214],[8,17,12.4,{rcs:800,h:30}],[9,88,44.0],[10,312,8.2],[11,120,15,{side:"ally"}]
+].map(([id,b,r,o])=>Sim.newContact(id,b,r,o));
+const radar=Sim.newRadar(20261111);
+let sweepOn=true; try{ sweepOn=localStorage.getItem("emcon.sweep")!=="0"; }catch(e){}
+const S={paused:true,ri:4,rings:true,labels:true,grid:true,sel:null,hup:false,ts:0};
 const COL={own:"#fff",ally:"#4da3ff",unk:"#ffd83a",host:"#ff4a4a"};
 
 const cv=$("cv"),g=cv.getContext("2d");
@@ -163,11 +184,11 @@ new ResizeObserver(resize).observe($("scopeWrap"));
 
 function niceStep(range){ const t=range/4, p=Math.pow(10,Math.floor(Math.log10(t))), m=t/p;
   return (m<1.5?1:m<3.5?2:m<7.5?5:10)*p; }
-const rng=c=>Math.hypot(c.x-ship.x,c.y-ship.y);
-const brg=c=>Sim.norm(Math.atan2(c.x-ship.x,c.y-ship.y)*180/Math.PI);
+const rng=c=>Math.hypot(c.px-ship.x,c.py-ship.y);
+const brg=c=>Sim.norm(Math.atan2(c.px-ship.x,c.py-ship.y)*180/Math.PI);
 function scopeGeom(){ return {cx:W/2,cy:H/2,R:Math.min(W,H)/2-26}; }
 function proj(c,G,px,rot){ // contact -> screen
-  const dx=c.x-ship.x, dy=c.y-ship.y, r=Math.hypot(dx,dy), b=Math.atan2(dx,dy)-rot*Math.PI/180;
+  const dx=c.px-ship.x, dy=c.py-ship.y, r=Math.hypot(dx,dy), b=Math.atan2(dx,dy)-rot*Math.PI/180;
   return {x:G.cx+Math.sin(b)*r*px, y:G.cy-Math.cos(b)*r*px};
 }
 
@@ -198,14 +219,25 @@ function draw(){
     g.lineTo(cx+ux*(R-9)+tx*6,cy+uy*(R-9)+ty*6);
     g.lineTo(cx+ux*(R-9)-tx*6,cy+uy*(R-9)-ty*6);
     g.closePath(); g.fill(); }
-  // contacts
+  // radar max range (dashed) + sweep
+  { const rr=Sim.CFG.RADAR.RANGE*px;
+    if(rr<R-4){ g.save(); g.setLineDash([4,5]); g.strokeStyle="#4b5256"; g.beginPath(); g.arc(cx,cy,rr,0,Math.PI*2); g.stroke(); g.restore(); }
+    if(sweepOn){ const L=Math.min(rr,R); g.save(); g.lineWidth=1.5;
+      for(let k=0;k<22;k++){ const a=A(radar.ang-k*2); g.strokeStyle="rgba(63,191,138,"+(0.55*(1-k/22)).toFixed(3)+")";
+        g.beginPath(); g.moveTo(cx,cy); g.lineTo(cx+Math.cos(a)*L,cy+Math.sin(a)*L); g.stroke(); }
+      g.restore(); } }
+  // contacts (only what the radar has seen)
   g.lineWidth=1.6;
   for(const c of contacts){
-    if(rng(c)>range) continue;
+    if(!c.seen||rng(c)>range) continue;
     const p=proj(c,G,px,rot); g.save(); g.translate(p.x,p.y);
-    g.strokeStyle=COL[c.cls]; g.strokeRect(-5,-5,10,10);
+    let al=1; if(!c.tracked) al=0.3; else if(sweepOn) al=1-0.65*Math.min(1,(radar.t-c.lastHit)/Sim.CFG.RADAR.PERIOD);
+    g.globalAlpha=al; g.strokeStyle=COL[c.cls];
+    if(!c.tracked) g.setLineDash([3,3]);
+    if(c.cls==="ally"){ g.beginPath(); g.arc(0,0,5.5,0,Math.PI*2); g.stroke(); } else g.strokeRect(-5,-5,10,10);
+    g.setLineDash([]); g.globalAlpha=1;
     if(S.sel===c.id){ g.strokeStyle="#fff"; g.lineWidth=1; g.strokeRect(-9,-9,18,18); g.lineWidth=1.6; }
-    if(S.labels){ g.fillStyle=COL[c.cls]; g.textAlign="left"; g.textBaseline="middle"; g.fillText(String(c.id).padStart(4,"0"),11,0); }
+    if(S.labels){ g.globalAlpha=Math.max(al,0.3); g.fillStyle=COL[c.cls]; g.textAlign="left"; g.textBaseline="middle"; g.fillText(String(c.id).padStart(4,"0"),11,0); }
     g.restore();
   }
   // own ship: white square + short heading line
@@ -237,18 +269,27 @@ function ui(){
   $("tsB").textContent=TS[S.ts]+"x";
   fillTable();
 }
+const TAGN={unk:"UNK",ally:"ALLY",host:"HOST"};
 function fillTable(){
-  const range=RANGES[S.ri], list=contacts.filter(c=>rng(c)<=range).sort((a,b)=>a.id-b.id);
-  $("tcount").textContent=list.length;
+  const range=RANGES[S.ri], list=contacts.filter(c=>c.seen&&rng(c)<=range).sort((a,b)=>a.id-b.id);
+  $("tcount").textContent=list.filter(c=>c.tracked).length;
+  selPanel();
   if(!$("tList").classList.contains("open")) return;
   const tb=$("tbody"); tb.innerHTML="";
   for(const c of list){
-    const tr=document.createElement("tr"); tr.className=c.cls+(S.sel===c.id?" sel":"");
-    tr.innerHTML=`<td>${String(c.id).padStart(4,"0")}</td><td>${c.cat}</td><td>${pad3(brg(c))}</td><td>${rng(c).toFixed(1)}</td>`;
+    const tr=document.createElement("tr"); tr.className=c.cls+(c.tracked?"":" lost")+(S.sel===c.id?" sel":"");
+    tr.innerHTML=`<td>${String(c.id).padStart(4,"0")}</td><td>${c.tracked?TAGN[c.cls]:"LOST"}</td><td>${pad3(brg(c))}</td><td>${rng(c).toFixed(1)}</td>`;
     tr.onclick=()=>{S.sel=S.sel===c.id?null:c.id; fillTable();};
     tb.appendChild(tr);
   }
 }
+function selPanel(){
+  const c=contacts.find(k=>k.id===S.sel&&k.seen);
+  $("selInfo").textContent=c?String(c.id).padStart(4,"0")+"  BRG "+pad3(brg(c))+"  RNG "+rng(c).toFixed(1)+"  "+(c.tracked?"Q "+Math.round(c.q*100)+"%":"LOST"):"No contact selected";
+  document.querySelectorAll(".tags button").forEach(b=>{ b.disabled=!(c&&c.tracked); b.classList.toggle("on",!!c&&c.tracked&&c.cls===b.dataset.t); });
+}
+document.querySelectorAll(".tags button").forEach(b=>b.onclick=()=>{
+  const c=contacts.find(k=>k.id===S.sel); if(c&&Sim.setTag(c,b.dataset.t)) fillTable(); });
 
 // ---- controls ----
 $("tHead").onclick=()=>{ $("tList").classList.toggle("open"); fillTable(); };
@@ -285,15 +326,25 @@ cv.addEventListener("pointerdown",e=>{
   const r=cv.getBoundingClientRect(), mx=e.clientX-r.left, my=e.clientY-r.top;
   const G=scopeGeom(), range=RANGES[S.ri], px=G.R/range, rot=S.hup?ship.hdg:0;
   let best=null,bd=22;
-  for(const c of contacts){ if(rng(c)>range) continue; const p=proj(c,G,px,rot), d=Math.hypot(p.x-mx,p.y-my); if(d<bd){bd=d;best=c;} }
+  for(const c of contacts){ if(!c.seen||rng(c)>range) continue; const p=proj(c,G,px,rot), d=Math.hypot(p.x-mx,p.y-my); if(d<bd){bd=d;best=c;} }
   S.sel=best?best.id:null; fillTable();
 });
+
+// ---- menu / settings ----
+function showMenu(on){ S.paused=on; $("menu").classList.toggle("show",on); }
+function sweepUi(){ $("sweepB").textContent=sweepOn?"On":"Off"; $("sweepB").classList.toggle("off",!sweepOn); }
+$("startB").onclick=()=>{ $("startB").textContent="RESUME"; showMenu(false); };
+$("menuB").onclick=()=>showMenu(true);
+$("setB").onclick=()=>{ $("menu").classList.remove("show"); $("settings").classList.add("show"); };
+$("backB").onclick=()=>{ $("settings").classList.remove("show"); $("menu").classList.add("show"); };
+$("sweepB").onclick=()=>{ sweepOn=!sweepOn; try{localStorage.setItem("emcon.sweep",sweepOn?"1":"0");}catch(e){} sweepUi(); };
+sweepUi();
 
 // ---- loop ----
 let last=performance.now();
 function frame(t){
   let sdt=Math.min(0.1,(t-last)/1000)*TS[S.ts]; last=t;
-  while(sdt>0){ const h=Math.min(0.5,sdt); Sim.step(ship,h); sdt-=h; }
+  if(!S.paused) while(sdt>0){ const h=Math.min(0.5,sdt); Sim.step(ship,h); Sim.radarStep(radar,ship,contacts,h); sdt-=h; }
   hud(); draw(); requestAnimationFrame(frame);
 }
 setInterval(fillTable,500);
