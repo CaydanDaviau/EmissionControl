@@ -10,7 +10,7 @@
     TURN_FULL_AT: 8, // kt at which turn rate is 100%
     TURN_MIN: 0.2, // fraction of turn rate left when slow/stopped
     // Burke radar (per-ship data later)
-    RADAR: { RANGE: 20, H_ANT: 100, PERIOD: 4, RCS_REF: 10000, Q_HIT: 0.35, Q_MISS: 0.08, Q_DROP: 0.10 }
+    RADAR: { RANGE: 70, H_ANT: 100, PERIOD: 4, RCS_REF: 10000, Q_HIT: 0.35, Q_MISS: 0.08, Q_DROP: 0.10 }
   };
   const norm = a => ((a % 360) + 360) % 360;
   const diff = (to, from) => { const d = norm(to - from); return d > 180 ? d - 360 : d; };

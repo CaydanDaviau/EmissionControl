@@ -166,7 +166,7 @@ const TS=[1,5,20];
 const ship=Sim.newShip();
 const LAT0=41+11.295/60, LON0=21+26.496/60;
 const contacts=[ [1,143,28.7],[2,255,32.1],[3,260,0.9],[4,243,154],[5,197,65.8],
-  [6,199,216],[7,351,214],[8,17,12.4,{rcs:800,h:30}],[9,88,44.0],[10,312,8.2],[11,120,15,{side:"ally"}]
+  [6,199,216],[7,351,214],[8,17,32,{rcs:800,h:400}],[9,88,44.0],[10,312,8.2],[11,120,15,{side:"ally"}]
 ].map(([id,b,r,o])=>Sim.newContact(id,b,r,o));
 const radar=Sim.newRadar(20261111);
 let sweepOn=true; try{ sweepOn=localStorage.getItem("emcon.sweep")!=="0"; }catch(e){}
@@ -218,6 +218,13 @@ function draw(){
     g.moveTo(cx+ux*(R+5),cy+uy*(R+5));
     g.lineTo(cx+ux*(R-9)+tx*6,cy+uy*(R-9)+ty*6);
     g.lineTo(cx+ux*(R-9)-tx*6,cy+uy*(R-9)-ty*6);
+    g.closePath(); g.fill(); }
+  // ordered heading marker (grey, points inward)
+  { const a=A(ship.ordHdg), ux=Math.cos(a), uy=Math.sin(a), tx=-uy, ty=ux;
+    g.fillStyle="#6b7378"; g.beginPath();
+    g.moveTo(cx+ux*(R-8),cy+uy*(R-8));
+    g.lineTo(cx+ux*(R+5)+tx*5,cy+uy*(R+5)+ty*5);
+    g.lineTo(cx+ux*(R+5)-tx*5,cy+uy*(R+5)-ty*5);
     g.closePath(); g.fill(); }
   // radar max range (dashed) + sweep
   { const rr=Sim.CFG.RADAR.RANGE*px;
