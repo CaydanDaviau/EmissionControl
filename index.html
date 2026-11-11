@@ -238,7 +238,7 @@ function draw(){
   for(const c of contacts){
     if(!c.seen||rng(c)>range) continue;
     const p=proj(c,G,px,rot); g.save(); g.translate(p.x,p.y);
-    let al=1; if(!c.tracked) al=0.3; else if(sweepOn) al=1-0.65*Math.min(1,(radar.t-c.lastHit)/Sim.CFG.RADAR.PERIOD);
+    let al=1; if(!c.tracked) al=0.3; else al=1-0.65*Math.min(1,(radar.t-c.lastHit)/Sim.CFG.RADAR.PERIOD);
     g.globalAlpha=al; g.strokeStyle=COL[c.cls];
     if(!c.tracked) g.setLineDash([3,3]);
     if(c.cls==="ally"){ g.beginPath(); g.arc(0,0,5.5,0,Math.PI*2); g.stroke(); } else g.strokeRect(-5,-5,10,10);
@@ -350,8 +350,8 @@ sweepUi();
 // ---- loop ----
 let last=performance.now();
 function frame(t){
-  let sdt=Math.min(0.1,(t-last)/1000)*TS[S.ts]; last=t;
-  if(!S.paused) while(sdt>0){ const h=Math.min(0.5,sdt); Sim.step(ship,h); Sim.radarStep(radar,ship,contacts,h); sdt-=h; }
+  const rdt=Math.min(0.1,(t-last)/1000); last=t; let sdt=rdt*TS[S.ts]; // rdt = real time (radar), sdt = scaled (ship motion)
+  if(!S.paused){ while(sdt>0){ const h=Math.min(0.5,sdt); Sim.step(ship,h); sdt-=h; } Sim.radarStep(radar,ship,contacts,rdt); }
   hud(); draw(); requestAnimationFrame(frame);
 }
 setInterval(fillTable,500);
