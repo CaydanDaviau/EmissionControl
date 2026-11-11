@@ -29,3 +29,40 @@ test("ESM/radar deterministic for a seed", () => {
   const f = () => { const s = Sim.newShip(), e = Sim.newEsm(9), c = mk(30, 24, { emit: { name: "X", range: 35 } }); run(dt => Sim.esmStep(e, s, [c], dt), 40); return c.esm.brg; };
   assert.equal(f(), f());
 });
+
+// ---- identify ----
+const track = (c, ship, radar) => run(dt => Sim.radarStep(radar, ship, [c], dt), 60);
+test("identify completes after TIME with a held track; reveals truth and locks the tag", () => {
+  const ship = Sim.newShip(), radar = Sim.newRadar(3), c = mk(0, 8, { side: "enemy" });
+  track(c, ship, radar); assert.ok(c.tracked && c.cls === "unk");
+  assert.ok(Sim.startIdentify(c));
+  run(dt => { Sim.radarStep(radar, ship, [c], dt); Sim.identifyStep([c], dt, radar.on); }, Sim.CFG.IDENTIFY.TIME + 2);
+  assert.ok(c.identified && c.cls === "host" && !c.idActive);
+  assert.equal(Sim.setTag(c, "ally"), false, "tag locked");
+});
+test("EMCON interrupts identify at once and resets progress", () => {
+  const ship = Sim.newShip(), radar = Sim.newRadar(4), c = mk(0, 8, { side: "enemy" });
+  track(c, ship, radar); Sim.startIdentify(c);
+  run(dt => { Sim.radarStep(radar, ship, [c], dt); Sim.identifyStep([c], dt, radar.on); }, 8);
+  assert.ok(c.idActive && c.idProg > 5);
+  radar.on = false; // EMCON: interrupts at once, even while the track still coasts
+  run(dt => { Sim.radarStep(radar, ship, [c], dt); Sim.identifyStep([c], dt, radar.on); }, 1);
+  assert.ok(c.tracked && !c.idActive && c.idProg === 0 && c.idNote === "emcon" && !c.identified);
+});
+test("identify is interrupted and resets when the track is lost (radar on)", () => {
+  const ship = Sim.newShip(), radar = Sim.newRadar(6), c = mk(0, 8, { side: "enemy" });
+  track(c, ship, radar); Sim.startIdentify(c);
+  c.tracked = false; Sim.identifyStep([c], 0.1, true); // track dropped (e.g. contact left detection range)
+  assert.ok(!c.idActive && c.idProg === 0 && c.idNote === "lost" && !c.identified);
+});
+test("identify needs a track; identified tag survives track loss; neutral and ally reveal correctly", () => {
+  const ship = Sim.newShip(), radar = Sim.newRadar(5), n = mk(0, 8), a = mk(90, 8, { side: "ally" });
+  assert.equal(Sim.startIdentify(n), false, "untracked");
+  run(dt => Sim.radarStep(radar, ship, [n, a], dt), 60);
+  Sim.startIdentify(n); Sim.startIdentify(a);
+  run(dt => { Sim.radarStep(radar, ship, [n, a], dt); Sim.identifyStep([n, a], dt, radar.on); }, 25);
+  assert.ok(n.identified && n.cls === "unk" && a.identified && a.cls === "ally");
+  radar.on = false; run(dt => Sim.radarStep(radar, ship, [n, a], dt), 90);
+  assert.ok(!a.tracked && a.identified && a.cls === "ally", "ID persists when lost");
+  assert.equal(Sim.startIdentify(a), false, "already identified");
+});

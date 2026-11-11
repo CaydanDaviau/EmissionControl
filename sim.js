@@ -13,7 +13,9 @@
     RADAR: { RANGE: 70, H_ANT: 100, PERIOD: 4, RCS_REF: 10000, Q_HIT: 0.35, Q_MISS: 0.08, Q_DROP: 0.10 },
     // ESM (passive): hears emitting radars, bearing only. Own-ship data, per-ship later.
     // Detect range = RANGE_FACTOR * emitter radar range, capped by horizon * DUCT (ducting).
-    ESM: { H_ANT: 100, RANGE_FACTOR: 2, DUCT: 1.3, INTERVAL: 2, SIGMA: 3, HOLD: 15 }
+    ESM: { H_ANT: 100, RANGE_FACTOR: 2, DUCT: 1.3, INTERVAL: 2, SIGMA: 3, HOLD: 15 },
+    // Identify: needs a continuous radar track for TIME seconds (real time, like all sensors). Track lost = reset to 0.
+    IDENTIFY: { TIME: 20 }
   };
   const norm = a => ((a % 360) + 360) % 360;
   const diff = (to, from) => { const d = norm(to - from); return d > 180 ? d - 360 : d; };
@@ -46,7 +48,8 @@
       hdg: o.course || 0, spd: o.speed || 0,                  // optional motion (kt)
       emit: o.emit || null, emitting: !!o.emit, esm: null, esmNo: 0, // emit = {name, range}; esm = last ESM bearing
 
-      cls: "unk", identified: false,           // cls = current tag; identified = permanent ID (later stage)
+      // side (hidden truth): "unk" = neutral/unknown, "ally", "enemy". cls = current tag; identified = permanent ID.
+      cls: "unk", identified: false, idActive: false, idProg: 0, idNote: "", // idNote: "" | "lost" | "emcon" (interrupted)
       seen: false, tracked: false, q: 0, px: 0, py: 0, lastHit: -1e9 };
   }
   function pDetect(d, c) {
@@ -103,8 +106,26 @@
       }
     }
   }
-  function setTag(c, cls) { if (!c.tracked) return false; c.cls = cls; return true; }
+  function setTag(c, cls) { if (!c.tracked || c.identified) return false; c.cls = cls; return true; } // identified = tag locked
+  // ---- identify ----
+  function startIdentify(c) {
+    if (!c.tracked || c.identified || c.idActive) return false;
+    c.idActive = true; c.idProg = 0; c.idNote = ""; return true;
+  }
+  function cancelIdentify(c) { c.idActive = false; c.idProg = 0; c.idNote = ""; }
+  function identifyStep(contacts, dt, radarOn) { // real-time dt, once per frame. Radar silent (EMCON) interrupts at once
+    for (const c of contacts) {
+      if (!c.idActive) continue;
+      if (!radarOn) { c.idActive = false; c.idProg = 0; c.idNote = "emcon"; continue; }
+      if (!c.tracked) { c.idActive = false; c.idProg = 0; c.idNote = "lost"; continue; } // track lost: interrupted, progress resets
+      c.idProg += dt;
+      if (c.idProg >= CFG.IDENTIFY.TIME) {
+        c.idActive = false; c.idProg = 0; c.identified = true; c.idNote = "";
+        c.cls = c.side === "ally" ? "ally" : c.side === "enemy" ? "host" : "unk"; // reveals hidden truth, tag locked
+      }
+    }
+  }
 
-  const api = { CFG, norm, diff, newShip, step, newRadar, newContact, pDetect, radarStep, setTag, stepContact, newEsm, pEsm, esmStep };
+  const api = { CFG, norm, diff, newShip, step, newRadar, newContact, pDetect, radarStep, setTag, stepContact, newEsm, pEsm, esmStep, startIdentify, cancelIdentify, identifyStep };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.Sim = api;
 })(typeof self !== "undefined" ? self : this);

@@ -28,6 +28,11 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
 #sensPage{flex:1;overflow-y:auto;touch-action:pan-y;background:var(--panel);padding-top:60px;max-width:560px}
 .note{color:var(--dim);font-size:12px;line-height:1.4;margin-top:6px}
 .srow{display:flex;gap:10px;padding:5px 0}.srow .n{min-width:52px;color:var(--dim)}.srow .s{margin-left:auto}
+.bar{height:6px;background:#1a1d1f;border:1px solid var(--line-dim);margin:8px 0 2px}
+.bar i{display:block;height:100%;width:0;background:#3fbf8a}
+#idList{max-height:150px;overflow-y:auto;touch-action:pan-y;margin-bottom:6px;border:1px solid var(--line-dim)}
+.idr{display:flex;gap:12px;padding:7px 6px}.idr .s{margin-left:auto;color:var(--dim)}.idr.sel{background:#2a2f33}.idr.lost{opacity:.45}
+.idr.unk span:first-child{color:var(--unk)}.idr.ally span:first-child{color:#4da3ff}.idr.host span:first-child{color:#ff4a4a}
 .esmr{padding:5px 0;color:#b388ff}.esmr .d{color:var(--dim);font-size:12px}
 #scopeWrap{flex:1;position:relative;min-width:0;min-height:180px}
 canvas{position:absolute;inset:0;width:100%;height:100%}
@@ -144,6 +149,14 @@ tr.sel{background:#2a2f33}
             <div class="row"><button id="emconB" style="flex:1"></button></div>
             <div class="note" id="emNote"></div>
           </div>
+          <div class="sec">
+            <h5>IDENTIFY</h5>
+            <div id="idList"></div>
+            <div id="idInfo" class="note" style="margin:0 0 6px">No contact selected</div>
+            <div class="row"><button id="idB" style="flex:1">IDENTIFY</button></div>
+            <div class="bar"><i id="idBar"></i></div>
+            <div class="note" id="idNote"></div>
+          </div>
           <div class="sec"><h5>SENSORS</h5><div id="sensList"></div></div>
           <div class="sec"><h5>ESM CONTACTS</h5><div id="esmList"></div></div>
         </div>
@@ -181,8 +194,8 @@ const TS=[1,5,20];
 const ship=Sim.newShip();
 const LAT0=41+11.295/60, LON0=21+26.496/60;
 const contacts=[ [1,143,28.7],[2,255,32.1],[3,260,0.9],[4,243,154],[5,197,65.8],
-  [6,199,216],[7,351,214],[8,17,32,{rcs:800,h:400}],[9,88,44.0],[10,312,8.2],[11,120,15,{side:"ally"}],
-  [12,40,45,{course:230,speed:15,emit:{name:"Type 346B",range:35}}] // moving emitter: heard by ESM before radar sees it
+  [6,199,216],[7,351,214],[8,17,32,{rcs:800,h:400,side:"enemy"}],[9,88,44.0],[10,312,8.2,{side:"enemy"}],[11,120,15,{side:"ally"}],
+  [12,40,45,{side:"enemy",course:230,speed:15,emit:{name:"Type 346B",range:35}}] // moving emitter: heard by ESM before radar sees it
 ].map(([id,b,r,o])=>Sim.newContact(id,b,r,o));
 const radar=Sim.newRadar(20261111), esm=Sim.newEsm(20261112);
 let sweepOn=true; try{ sweepOn=localStorage.getItem("emcon.sweep")!=="0"; }catch(e){}
@@ -308,12 +321,38 @@ function sensUi(){
     :"Radar off: enemy ESM cannot hear you, but you are blind to radar contacts and existing tracks fade out.";
   $("sensList").innerHTML=SENSORS.map(x=>`<div class="srow"><span class="n">${x.name}</span><span>${x.model}</span><span class="s">${x.state()}</span></div>`).join("");
   const L=contacts.filter(c=>c.esm).sort((a,b)=>a.esmNo-b.esmNo);
+  identList();
   $("esmList").innerHTML=L.length?L.map(c=>{
     const near=c.seen&&c.tracked&&Math.abs(Sim.diff(brg(c),c.esm.brg))<2*Sim.CFG.ESM.SIGMA;
     return `<div class="esmr">E${c.esmNo}  ${c.emit.name}  BRG ${pad3(c.esm.brg)}\u00b1${Sim.CFG.ESM.SIGMA}${near?"  = TRK "+String(c.id).padStart(4,"0"):""}<div class="d">heard ${Math.round(esm.t-c.esm.t)}s ago</div></div>`;
   }).join(""):'<div class="note">No emitters heard.</div>';
 }
 $("emconB").onclick=()=>{ radar.on=!radar.on; sensUi(); };
+// ---- identify (SENSORS tab) ----
+const IDN={unk:"NEUTRAL",ally:"ALLY",host:"HOSTILE"};
+let idHtml="";
+function identList(){
+  const L=contacts.filter(c=>c.seen).sort((a,b)=>a.id-b.id);
+  const h=L.map(c=>{ const st=!c.tracked?"LOST":c.identified?"IDENTIFIED":c.idActive?Math.round(100*c.idProg/Sim.CFG.IDENTIFY.TIME)+"%":"";
+    return `<div class="idr ${c.cls}${c.tracked?"":" lost"}${S.sel===c.id?" sel":""}" data-id="${c.id}"><span>${String(c.id).padStart(4,"0")}</span><span>${c.tracked?TAGN[c.cls]:"--"}</span><span>${rng(c).toFixed(1)} NM</span><span class="s">${st}</span></div>`; }).join("")
+    ||'<div class="note" style="padding:6px">No contacts yet.</div>';
+  if(h!==idHtml){ idHtml=h; $("idList").innerHTML=h; }
+}
+function identPanel(){
+  const c=contacts.find(k=>k.id===S.sel&&k.seen), T=Sim.CFG.IDENTIFY.TIME, b=$("idB");
+  $("idInfo").textContent=c?String(c.id).padStart(4,"0")+"  BRG "+pad3(brg(c))+"  RNG "+rng(c).toFixed(1)+"  "+(c.tracked?"Q "+Math.round(c.q*100)+"%":"LOST"):"No contact selected";
+  b.textContent=!c?"IDENTIFY":c.idActive?"CANCEL":c.identified?"IDENTIFIED":"IDENTIFY";
+  b.disabled=!c||(!c.idActive&&(c.identified||!c.tracked||!radar.on)); b.classList.toggle("on",!!c&&c.idActive);
+  $("idBar").style.width=(c?(c.identified?100:100*c.idProg/T):0)+"%";
+  $("idNote").textContent=!c?"Pick a contact from the list.":c.identified?"Identified: "+IDN[c.cls]+". Tag is locked.":
+    c.idActive?"Identifying... "+Math.floor(c.idProg)+" / "+T+" s. Keep the radar track.":
+    c.idNote==="lost"?"Interrupted: track lost. Progress reset.":c.idNote==="emcon"?"Interrupted: radar went silent (EMCON). Progress reset.":!radar.on?"Radar is silent (EMCON). Identify needs the radar on.":!c.tracked?"Track lost. Identify needs a radar track.":
+    "Needs a continuous radar track for "+T+" s. Losing it resets progress.";
+}
+$("idList").addEventListener("pointerdown",e=>{ const r=e.target.closest(".idr"); if(!r) return;
+  const id=+r.dataset.id; S.sel=S.sel===id?null:id; identList(); identPanel(); fillTable(); });
+$("idB").onclick=()=>{ const c=contacts.find(k=>k.id===S.sel&&k.seen); if(!c) return;
+  if(c.idActive) Sim.cancelIdentify(c); else Sim.startIdentify(c); identPanel(); identList(); };
 const TAGN={unk:"UNK",ally:"ALLY",host:"HOST"};
 function fillTable(){
   const range=RANGES[S.ri], list=contacts.filter(c=>c.seen&&rng(c)<=range).sort((a,b)=>a.id-b.id);
@@ -330,8 +369,8 @@ function fillTable(){
 }
 function selPanel(){
   const c=contacts.find(k=>k.id===S.sel&&k.seen);
-  $("selInfo").textContent=c?String(c.id).padStart(4,"0")+"  BRG "+pad3(brg(c))+"  RNG "+rng(c).toFixed(1)+"  "+(c.tracked?"Q "+Math.round(c.q*100)+"%":"LOST"):"No contact selected";
-  document.querySelectorAll(".tags button").forEach(b=>{ b.disabled=!(c&&c.tracked); b.classList.toggle("on",!!c&&c.tracked&&c.cls===b.dataset.t); });
+  $("selInfo").textContent=c?String(c.id).padStart(4,"0")+"  BRG "+pad3(brg(c))+"  RNG "+rng(c).toFixed(1)+"  "+(c.tracked?"Q "+Math.round(c.q*100)+"%":"LOST")+(c.identified?"  ID":""):"No contact selected";
+  document.querySelectorAll(".tags button").forEach(b=>{ b.disabled=!(c&&c.tracked&&!c.identified); b.classList.toggle("on",!!c&&c.tracked&&c.cls===b.dataset.t); });
 }
 document.querySelectorAll(".tags button").forEach(b=>b.onclick=()=>{
   const c=contacts.find(k=>k.id===S.sel); if(c&&Sim.setTag(c,b.dataset.t)) fillTable(); });
@@ -390,11 +429,11 @@ let last=performance.now();
 function frame(t){
   const rdt=Math.min(0.1,(t-last)/1000); last=t; let sdt=rdt*TS[S.ts]; // rdt = real time (radar), sdt = scaled (ship motion)
   if(!S.paused){ while(sdt>0){ const h=Math.min(0.5,sdt); Sim.step(ship,h); for(const c of contacts) Sim.stepContact(c,h); sdt-=h; }
-    Sim.radarStep(radar,ship,contacts,rdt); Sim.esmStep(esm,ship,contacts,rdt); } // sensors run in real time
-  hud(); draw(); requestAnimationFrame(frame);
+    Sim.radarStep(radar,ship,contacts,rdt); Sim.esmStep(esm,ship,contacts,rdt); Sim.identifyStep(contacts,rdt,radar.on); } // sensors run in real time
+  hud(); draw(); if(stIdx===1) identPanel(); requestAnimationFrame(frame);
 }
 setInterval(()=>{fillTable();sensUi();},500);
-resize(); ui(); sensUi(); requestAnimationFrame(frame);
+resize(); ui(); sensUi(); identPanel(); requestAnimationFrame(frame);
 </script>
 </body>
 </html>
