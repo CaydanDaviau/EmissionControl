@@ -10,7 +10,10 @@
     TURN_FULL_AT: 8, // kt at which turn rate is 100%
     TURN_MIN: 0.2, // fraction of turn rate left when slow/stopped
     // Burke radar (per-ship data later)
-    RADAR: { RANGE: 70, H_ANT: 100, PERIOD: 4, RCS_REF: 10000, Q_HIT: 0.35, Q_MISS: 0.08, Q_DROP: 0.10 }
+    RADAR: { RANGE: 70, H_ANT: 100, PERIOD: 4, RCS_REF: 10000, Q_HIT: 0.35, Q_MISS: 0.08, Q_DROP: 0.10 },
+    // ESM (passive): hears emitting radars, bearing only. Own-ship data, per-ship later.
+    // Detect range = RANGE_FACTOR * emitter radar range, capped by horizon * DUCT (ducting).
+    ESM: { H_ANT: 100, RANGE_FACTOR: 2, DUCT: 1.3, INTERVAL: 2, SIGMA: 3, HOLD: 15 }
   };
   const norm = a => ((a % 360) + 360) % 360;
   const diff = (to, from) => { const d = norm(to - from); return d > 180 ? d - 360 : d; };
@@ -28,7 +31,7 @@
   }
 
   // ---- radar ----
-  function newRadar(seed) { return { ang: 0, t: 0, seed: seed | 0 }; }
+  function newRadar(seed) { return { ang: 0, t: 0, seed: seed | 0, on: true }; } // on=false: EMCON, beam turns but nothing is detected
   function rand(r) { // mulberry32, state in r.seed
     r.seed = (r.seed + 0x6D2B79F5) | 0;
     let t = Math.imul(r.seed ^ (r.seed >>> 15), 1 | r.seed);
@@ -40,6 +43,9 @@
     const a = bearing * Math.PI / 180;
     return { id, cat: "SRF", side: o.side || "unk", rcs: o.rcs || 10000, h: o.h || 60,
       x: Math.sin(a) * range, y: Math.cos(a) * range,
+      hdg: o.course || 0, spd: o.speed || 0,                  // optional motion (kt)
+      emit: o.emit || null, emitting: !!o.emit, esm: null, esmNo: 0, // emit = {name, range}; esm = last ESM bearing
+
       cls: "unk", identified: false,           // cls = current tag; identified = permanent ID (later stage)
       seen: false, tracked: false, q: 0, px: 0, py: 0, lastHit: -1e9 };
   }
@@ -56,7 +62,7 @@
       const dx = c.x - ship.x, dy = c.y - ship.y;
       const b = norm(Math.atan2(dx, dy) * 180 / Math.PI), sd = norm(b - a0);
       if (sd <= 0 || sd > inc) continue;               // beam did not pass this contact
-      if (rand(r) < pDetect(Math.hypot(dx, dy), c)) {
+      if (r.on && rand(r) < pDetect(Math.hypot(dx, dy), c)) {
         const first = !c.tracked;
         c.q += (1 - c.q) * CFG.RADAR.Q_HIT; c.lastHit = r.t;
         c.px = c.x; c.py = c.y; c.seen = true;
@@ -67,8 +73,38 @@
       }
     }
   }
+  function stepContact(c, dt) {
+    if (!c.spd) return;
+    const r = c.hdg * Math.PI / 180, d = c.spd * dt / 3600;
+    c.x += Math.sin(r) * d; c.y += Math.cos(r) * d;
+  }
+  // ---- ESM ----
+  function newEsm(seed) { return { t: 0, acc: 0, n: 0, seed: seed | 0 }; }
+  function gauss(r) { return Math.sqrt(-2 * Math.log(Math.max(rand(r), 1e-12))) * Math.cos(2 * Math.PI * rand(r)); }
+  function pEsm(d, c) {
+    const E = CFG.ESM, hor = 1.23 * (Math.sqrt(E.H_ANT) + Math.sqrt(c.h)) * E.DUCT;
+    if (!c.emit || !c.emitting || d > hor) return 0;
+    const rd = E.RANGE_FACTOR * c.emit.range;
+    return 1 / (1 + Math.exp(-(rd - d) / (0.15 * rd)));
+  }
+  function esmStep(e, ship, contacts, dt) {
+    const E = CFG.ESM; e.t += dt; e.acc += dt;
+    while (e.acc >= E.INTERVAL) {
+      e.acc -= E.INTERVAL;
+      for (const c of contacts) {
+        if (!c.emit) continue;
+        const dx = c.x - ship.x, dy = c.y - ship.y;
+        if (c.emitting && rand(e) < pEsm(Math.hypot(dx, dy), c)) {
+          const b = norm(Math.atan2(dx, dy) * 180 / Math.PI + gauss(e) * E.SIGMA);
+          if (!c.esmNo) c.esmNo = ++e.n;
+          c.esm = { brg: c.esm ? norm(c.esm.brg + 0.4 * diff(b, c.esm.brg)) : b, t: e.t }; // light smoothing
+        }
+        if (c.esm && e.t - c.esm.t > E.HOLD) c.esm = null;
+      }
+    }
+  }
   function setTag(c, cls) { if (!c.tracked) return false; c.cls = cls; return true; }
 
-  const api = { CFG, norm, diff, newShip, step, newRadar, newContact, pDetect, radarStep, setTag };
+  const api = { CFG, norm, diff, newShip, step, newRadar, newContact, pDetect, radarStep, setTag, stepContact, newEsm, pEsm, esmStep };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.Sim = api;
 })(typeof self !== "undefined" ? self : this);

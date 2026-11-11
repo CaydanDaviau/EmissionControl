@@ -25,6 +25,10 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
 .page{flex:1;display:none;min-height:0;min-width:0}
 .page.active{display:flex}
 #navPage{flex-direction:row}
+#sensPage{flex:1;overflow-y:auto;touch-action:pan-y;background:var(--panel);padding-top:60px;max-width:560px}
+.note{color:var(--dim);font-size:12px;line-height:1.4;margin-top:6px}
+.srow{display:flex;gap:10px;padding:5px 0}.srow .n{min-width:52px;color:var(--dim)}.srow .s{margin-left:auto}
+.esmr{padding:5px 0;color:#b388ff}.esmr .d{color:var(--dim);font-size:12px}
 #scopeWrap{flex:1;position:relative;min-width:0;min-height:180px}
 canvas{position:absolute;inset:0;width:100%;height:100%}
 #side{width:330px;flex:none;background:var(--panel);border-left:1px solid var(--line-dim);overflow-y:auto;touch-action:pan-y}
@@ -133,6 +137,17 @@ tr.sel{background:#2a2f33}
           </div>
         </div>
       </div>
+      <div class="page" id="pg1">
+        <div id="sensPage">
+          <div class="sec">
+            <h5>EMCON</h5>
+            <div class="row"><button id="emconB" style="flex:1"></button></div>
+            <div class="note" id="emNote"></div>
+          </div>
+          <div class="sec"><h5>SENSORS</h5><div id="sensList"></div></div>
+          <div class="sec"><h5>ESM CONTACTS</h5><div id="esmList"></div></div>
+        </div>
+      </div>
     </div>
     <button class="arrow" id="nextSt">&rsaquo;</button>
     <button class="arrow" id="menuB">&#9776;</button>
@@ -149,7 +164,7 @@ const pad3=n=>String(Math.round(n)).padStart(3,"0");
 // ---- stations (tabs) ----
 const STATIONS=["NAVIGATION","SENSORS","WEAPONS","DEFENSE"];
 let stIdx=0;
-STATIONS.forEach((n,i)=>{ if(i===0) return;
+STATIONS.forEach((n,i)=>{ if(i<=1) return;
   const d=document.createElement("div"); d.className="page"; d.id="pg"+i;
   d.innerHTML='<div class="ph">'+n+'<br>not built yet</div>'; $("pages").appendChild(d); });
 function showStation(i){
@@ -166,9 +181,10 @@ const TS=[1,5,20];
 const ship=Sim.newShip();
 const LAT0=41+11.295/60, LON0=21+26.496/60;
 const contacts=[ [1,143,28.7],[2,255,32.1],[3,260,0.9],[4,243,154],[5,197,65.8],
-  [6,199,216],[7,351,214],[8,17,32,{rcs:800,h:400}],[9,88,44.0],[10,312,8.2],[11,120,15,{side:"ally"}]
+  [6,199,216],[7,351,214],[8,17,32,{rcs:800,h:400}],[9,88,44.0],[10,312,8.2],[11,120,15,{side:"ally"}],
+  [12,40,45,{course:230,speed:15,emit:{name:"Type 346B",range:35}}] // moving emitter: heard by ESM before radar sees it
 ].map(([id,b,r,o])=>Sim.newContact(id,b,r,o));
-const radar=Sim.newRadar(20261111);
+const radar=Sim.newRadar(20261111), esm=Sim.newEsm(20261112);
 let sweepOn=true; try{ sweepOn=localStorage.getItem("emcon.sweep")!=="0"; }catch(e){}
 const S={paused:true,ri:4,rings:true,labels:true,grid:true,sel:null,hup:false,ts:0};
 const COL={own:"#fff",ally:"#4da3ff",unk:"#ffd83a",host:"#ff4a4a"};
@@ -229,10 +245,17 @@ function draw(){
   // radar max range (dashed) + sweep
   { const rr=Sim.CFG.RADAR.RANGE*px;
     if(rr<R-4){ g.save(); g.setLineDash([4,5]); g.strokeStyle="#4b5256"; g.beginPath(); g.arc(cx,cy,rr,0,Math.PI*2); g.stroke(); g.restore(); }
-    if(sweepOn){ const L=Math.min(rr,R); g.save(); g.lineWidth=1.5;
+    if(sweepOn&&radar.on){ const L=Math.min(rr,R); g.save(); g.lineWidth=1.5;
       for(let k=0;k<22;k++){ const a=A(radar.ang-k*2); g.strokeStyle="rgba(63,191,138,"+(0.55*(1-k/22)).toFixed(3)+")";
         g.beginPath(); g.moveTo(cx,cy); g.lineTo(cx+Math.cos(a)*L,cy+Math.sin(a)*L); g.stroke(); }
       g.restore(); } }
+  // ESM bearing lines (dashed violet, +/- sigma wedge)
+  for(const c of contacts){ if(!c.esm) continue;
+    const a=A(c.esm.brg), sg=Sim.CFG.ESM.SIGMA*Math.PI/180, f=Math.max(0.35,1-0.65*(esm.t-c.esm.t)/Sim.CFG.ESM.HOLD);
+    g.save(); g.globalAlpha=f; g.fillStyle="rgba(179,136,255,.12)"; g.beginPath(); g.moveTo(cx,cy); g.arc(cx,cy,R,a-sg,a+sg); g.closePath(); g.fill();
+    g.strokeStyle="#b388ff"; g.lineWidth=1.2; g.setLineDash([7,5]); g.beginPath(); g.moveTo(cx,cy); g.lineTo(cx+Math.cos(a)*R,cy+Math.sin(a)*R); g.stroke(); g.setLineDash([]);
+    if(S.labels){ g.fillStyle="#b388ff"; g.textAlign="left"; g.textBaseline="middle"; g.fillText("E"+c.esmNo+" "+c.emit.name,cx+Math.cos(a)*R*0.62+6,cy+Math.sin(a)*R*0.62); }
+    g.restore(); }
   // contacts (only what the radar has seen)
   g.lineWidth=1.6;
   for(const c of contacts){
@@ -276,6 +299,21 @@ function ui(){
   $("tsB").textContent=TS[S.ts]+"x";
   fillTable();
 }
+const SENSORS=[ // add new sensors here; each row shows name, model and live state
+  {name:"RADAR",model:"AN/SPY-1D",state:()=>radar.on?"EMITTING":"SILENT"},
+  {name:"ESM",model:"AN/SLQ-32",state:()=>"PASSIVE"} ];
+function sensUi(){
+  const eb=$("emconB"); eb.textContent=radar.on?"EMCON OFF  \u00b7  RADAR EMITTING":"EMCON ON  \u00b7  RADAR SILENT"; eb.classList.toggle("on",!radar.on);
+  $("emNote").textContent=radar.on?"Radar on: you can track radar contacts, but enemy ESM can hear you from beyond your radar horizon."
+    :"Radar off: enemy ESM cannot hear you, but you are blind to radar contacts and existing tracks fade out.";
+  $("sensList").innerHTML=SENSORS.map(x=>`<div class="srow"><span class="n">${x.name}</span><span>${x.model}</span><span class="s">${x.state()}</span></div>`).join("");
+  const L=contacts.filter(c=>c.esm).sort((a,b)=>a.esmNo-b.esmNo);
+  $("esmList").innerHTML=L.length?L.map(c=>{
+    const near=c.seen&&c.tracked&&Math.abs(Sim.diff(brg(c),c.esm.brg))<2*Sim.CFG.ESM.SIGMA;
+    return `<div class="esmr">E${c.esmNo}  ${c.emit.name}  BRG ${pad3(c.esm.brg)}\u00b1${Sim.CFG.ESM.SIGMA}${near?"  = TRK "+String(c.id).padStart(4,"0"):""}<div class="d">heard ${Math.round(esm.t-c.esm.t)}s ago</div></div>`;
+  }).join(""):'<div class="note">No emitters heard.</div>';
+}
+$("emconB").onclick=()=>{ radar.on=!radar.on; sensUi(); };
 const TAGN={unk:"UNK",ally:"ALLY",host:"HOST"};
 function fillTable(){
   const range=RANGES[S.ri], list=contacts.filter(c=>c.seen&&rng(c)<=range).sort((a,b)=>a.id-b.id);
@@ -351,11 +389,12 @@ sweepUi();
 let last=performance.now();
 function frame(t){
   const rdt=Math.min(0.1,(t-last)/1000); last=t; let sdt=rdt*TS[S.ts]; // rdt = real time (radar), sdt = scaled (ship motion)
-  if(!S.paused){ while(sdt>0){ const h=Math.min(0.5,sdt); Sim.step(ship,h); sdt-=h; } Sim.radarStep(radar,ship,contacts,rdt); }
+  if(!S.paused){ while(sdt>0){ const h=Math.min(0.5,sdt); Sim.step(ship,h); for(const c of contacts) Sim.stepContact(c,h); sdt-=h; }
+    Sim.radarStep(radar,ship,contacts,rdt); Sim.esmStep(esm,ship,contacts,rdt); } // sensors run in real time
   hud(); draw(); requestAnimationFrame(frame);
 }
-setInterval(fillTable,500);
-resize(); ui(); requestAnimationFrame(frame);
+setInterval(()=>{fillTable();sensUi();},500);
+resize(); ui(); sensUi(); requestAnimationFrame(frame);
 </script>
 </body>
 </html>
