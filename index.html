@@ -6,38 +6,54 @@
 <title>EMCON</title>
 <style>
 :root{
-  --bg:#34383b; --panel:#2b2e31; --line:#7d8488; --line-dim:#565c60; --text:#d7dadc; --dim:#8d9498;
-  --own:#ffffff; --ally:#4da3ff; --unk:#ffd83a; --host:#ff4a4a;
+  --bg:#000; --panel:#0c0d0e; --line:#7d8488; --line-dim:#34383b; --text:#d7dadc; --dim:#8d9498;
+  --unk:#ffd83a; --act:#2a3a4a;
 }
 *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
-  font:13px/1.25 "Consolas","DejaVu Sans Mono",monospace;overflow:hidden;touch-action:none;user-select:none}
+  font:13px/1.25 "Consolas","DejaVu Sans Mono",monospace;overflow:hidden;touch-action:none;user-select:none;-webkit-user-select:none}
 #app{display:flex;flex-direction:column;height:100%;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
-#top{display:flex;gap:14px;padding:6px 10px;background:var(--panel);border-bottom:1px solid var(--line-dim);white-space:nowrap;overflow:hidden}
+#top{display:flex;gap:12px;padding:6px 10px;background:var(--panel);border-bottom:1px solid var(--line-dim);white-space:nowrap;overflow:hidden}
 #top b{color:var(--dim);font-weight:normal}
+#top .st{color:#fff;font-weight:bold}
 #main{flex:1;display:flex;min-height:0}
-#scopeWrap{flex:1;position:relative;min-width:0;min-height:0}
+.arrow{width:30px;flex:none;border:0;border-left:1px solid var(--line-dim);border-right:1px solid var(--line-dim);background:var(--panel);color:var(--text);font-size:20px;padding:0;min-width:0}
+.arrow:active{background:var(--act)}
+#pages{flex:1;min-width:0;display:flex;min-height:0}
+.page{flex:1;display:none;min-height:0;min-width:0}
+.page.active{display:flex}
+#navPage{flex-direction:row}
+#scopeWrap{flex:1;position:relative;min-width:0;min-height:180px}
 canvas{position:absolute;inset:0;width:100%;height:100%}
-#side{width:300px;background:var(--panel);border-left:1px solid var(--line-dim);display:flex;flex-direction:column;min-height:0}
-#side h4{margin:0;padding:5px 8px;text-align:center;font-weight:normal;color:var(--dim);border-bottom:1px solid var(--line-dim)}
-#tracks{flex:1;overflow:auto}
+#side{width:330px;flex:none;background:var(--panel);border-left:1px solid var(--line-dim);overflow-y:auto;touch-action:pan-y}
+.ph{flex:1;display:flex;align-items:center;justify-content:center;text-align:center;color:var(--dim);font-size:16px;line-height:1.8}
+.sec{padding:8px;border-bottom:1px solid var(--line-dim)}
+.sec h5{margin:0 0 6px;font-weight:normal;color:var(--dim);letter-spacing:1px}
+.row{display:flex;gap:6px;align-items:center;margin-bottom:6px;flex-wrap:wrap}
+.row:last-child{margin-bottom:0}
+.row .lbl{color:var(--dim);min-width:54px}
+.row .rd{margin-left:auto;color:var(--text)}
+button{font:inherit;color:var(--text);background:#16191b;border:1px solid var(--line);padding:9px 10px;min-width:40px}
+button:active{background:var(--act)}
+button.on{background:var(--act);border-color:#8fb4d8;color:#fff}
+button.off{color:var(--dim);border-color:var(--line-dim)}
+.spd button{flex:1;padding:10px 2px;font-size:12px}
+input{font:inherit;color:#fff;background:#000;border:1px solid var(--line);padding:9px 4px;width:70px;text-align:center;font-size:16px;user-select:text;-webkit-user-select:text}
+.hdg button{width:54px;font-size:18px;padding:8px 0}
+.val{min-width:64px;text-align:center}
+#tHead{width:100%;text-align:left;border:0;border-bottom:1px solid var(--line-dim);background:var(--panel);padding:10px 8px}
+#tList{display:none;max-height:190px;overflow:auto;touch-action:pan-y;border-bottom:1px solid var(--line-dim)}
+#tList.open{display:block}
 table{width:100%;border-collapse:collapse}
 th{color:var(--dim);font-weight:normal;text-align:right;padding:3px 6px;position:sticky;top:0;background:var(--panel)}
-td{text-align:right;padding:3px 6px}
+td{text-align:right;padding:5px 6px}
 th:first-child,td:first-child{text-align:left}
 tr.unk td:first-child{color:var(--unk)}
-tr.sel{background:#4a5054}
-#ctl{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;padding:6px 8px;background:var(--panel);border-top:1px solid var(--line-dim)}
-.grp{display:flex;align-items:center;gap:5px}
-.grp span{color:var(--dim)}
-button{font:inherit;color:var(--text);background:#3d4245;border:1px solid var(--line);padding:7px 12px;min-width:40px}
-button:active{background:#555c60}
-button.off{color:var(--dim);border-color:var(--line-dim)}
-.val{min-width:64px;text-align:center}
+tr.sel{background:#2a2f33}
 @media (max-width:760px){
-  #main{flex-direction:column}
-  #side{width:auto;height:30%;border-left:0;border-top:1px solid var(--line-dim)}
-  #top{gap:10px;font-size:12px}
+  #navPage{flex-direction:column}
+  #side{width:auto;border-left:0;border-top:1px solid var(--line-dim);max-height:54%;flex:none}
+  #top{gap:8px;font-size:11px}
   #top .hide-s{display:none}
 }
 </style>
@@ -45,151 +61,243 @@ button.off{color:var(--dim);border-color:var(--line-dim)}
 <body>
 <div id="app">
   <div id="top">
-    <div><b>POS</b> 41°11.295'N 021°26.496'E</div>
+    <div class="st" id="stName">NAVIGATION</div>
+    <div><b>POS</b> <span id="pos"></span></div>
     <div class="hide-s"><b>UTC</b> <span id="utc"></span></div>
-    <div><b>CRS</b> 000°</div>
-    <div><b>SPD</b> 0 KT</div>
+    <div><b>CRS</b> <span id="crs">000°</span></div>
+    <div><b>SPD</b> <span id="spdT">0.0</span> KT</div>
   </div>
   <div id="main">
-    <div id="scopeWrap"><canvas id="cv"></canvas></div>
-    <div id="side">
-      <h4>TRACKS: <span id="tcount">0</span></h4>
-      <div id="tracks"><table>
-        <thead><tr><th>TRK</th><th>CAT</th><th>BRG</th><th>RNG</th></tr></thead>
-        <tbody id="tbody"></tbody></table></div>
+    <button class="arrow" id="prevSt">&lsaquo;</button>
+    <div id="pages">
+      <div class="page active" id="pg0">
+        <div id="navPage" style="display:flex;flex:1;min-width:0;min-height:0">
+          <div id="scopeWrap"><canvas id="cv"></canvas></div>
+          <div id="side">
+            <button id="tHead">TRACKS: <span id="tcount">0</span> ▾</button>
+            <div id="tList"><table>
+              <thead><tr><th>TRK</th><th>CAT</th><th>BRG</th><th>RNG</th></tr></thead>
+              <tbody id="tbody"></tbody></table></div>
+
+            <div class="sec">
+              <h5>SPEED</h5>
+              <div class="row spd">
+                <button id="sRev">REVERSE</button>
+                <button id="sStop">STOP</button>
+                <button id="sCru">CRUISE 15</button>
+                <button id="sFlk">FLANK 30</button>
+              </div>
+              <div class="row"><span class="lbl">SPD</span><span class="rd"><span id="spdA">0.0</span> kt &rarr; <span id="spdO">0</span></span></div>
+            </div>
+
+            <div class="sec">
+              <h5>HEADING</h5>
+              <div class="row hdg">
+                <button id="hL">&lt;</button>
+                <input id="hdgIn" type="text" inputmode="numeric" enterkeyhint="go" maxlength="3" value="000" autocomplete="off">
+                <button id="hR">&gt;</button>
+                <span class="rd"><span id="hdgA">000</span>° &rarr; <span id="hdgO">000</span>°</span>
+              </div>
+              <div class="row"><button id="orient" style="flex:1">NORTH UP</button></div>
+            </div>
+
+            <div class="sec">
+              <h5>DISPLAY</h5>
+              <div class="row">
+                <span class="lbl">Range</span><button id="rm">-</button><span class="val" id="rv"></span><button id="rp">+</button>
+              </div>
+              <div class="row">
+                <span class="lbl">Rings</span><button id="ringsB">On</button>
+                <span class="lbl" style="min-width:0">Labels</span><button id="labB">On</button>
+                <span class="lbl" style="min-width:0">Grid</span><button id="gridB">On</button>
+              </div>
+              <div class="row"><span class="lbl">Time</span><button id="tsB">1x</button></div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
-  </div>
-  <div id="ctl">
-    <div class="grp"><span>Range</span><button id="rm">-</button><span class="val" id="rv"></span><button id="rp">+</button></div>
-    <div class="grp"><span>Rings</span><button id="ringsB">On</button></div>
-    <div class="grp"><span>Labels</span><button id="labB">On</button></div>
-    <div class="grp"><span>Grid</span><button id="gridB">On</button></div>
+    <button class="arrow" id="nextSt">&rsaquo;</button>
   </div>
 </div>
+<script src="sim.js"></script>
 <script>
 "use strict";
-// ---- data (static for stage 1) ----
+const $=id=>document.getElementById(id);
+const pad3=n=>String(Math.round(n)).padStart(3,"0");
+
+// ---- stations (tabs) ----
+const STATIONS=["NAVIGATION","SENSORS","WEAPONS","DEFENSE"];
+let stIdx=0;
+STATIONS.forEach((n,i)=>{ if(i===0) return;
+  const d=document.createElement("div"); d.className="page"; d.id="pg"+i;
+  d.innerHTML='<div class="ph">'+n+'<br>not built yet</div>'; $("pages").appendChild(d); });
+function showStation(i){
+  stIdx=(i+STATIONS.length)%STATIONS.length;
+  STATIONS.forEach((_,k)=>$("pg"+k).classList.toggle("active",k===stIdx));
+  $("stName").textContent=STATIONS[stIdx]; resize();
+}
+$("prevSt").onclick=()=>showStation(stIdx-1);
+$("nextSt").onclick=()=>showStation(stIdx+1);
+
+// ---- state ----
 const RANGES=[5,10,20,40,70,100,150,200,300];
-const own={x:0,y:0}; // nm, +y = north
-const contacts=[ // id, bearing deg, range nm, cat
-  [1,143,28.7],[2,255,32.1],[3,260,0.9],[4,243,154],[5,197,65.8],
+const TS=[1,5,20];
+const ship=Sim.newShip();
+const LAT0=41+11.295/60, LON0=21+26.496/60;
+const contacts=[ [1,143,28.7],[2,255,32.1],[3,260,0.9],[4,243,154],[5,197,65.8],
   [6,199,216],[7,351,214],[8,17,12.4],[9,88,44.0],[10,312,8.2]
 ].map(([id,b,r])=>({id,cat:"SRF",cls:"unk",
   x:Math.sin(b*Math.PI/180)*r, y:Math.cos(b*Math.PI/180)*r}));
-
-const S={ri:4,rings:true,labels:true,grid:true,sel:null};
+const S={ri:4,rings:true,labels:true,grid:true,sel:null,hup:false,ts:0};
 const COL={own:"#fff",ally:"#4da3ff",unk:"#ffd83a",host:"#ff4a4a"};
-const cv=document.getElementById("cv"),g=cv.getContext("2d");
-let W=0,H=0,dpr=1;
 
+const cv=$("cv"),g=cv.getContext("2d");
+let W=0,H=0,dpr=1;
 function resize(){
   dpr=window.devicePixelRatio||1;
   const r=cv.getBoundingClientRect(); W=r.width; H=r.height;
   cv.width=Math.round(W*dpr); cv.height=Math.round(H*dpr);
-  draw();
 }
-function niceStep(range){ const t=range/4; const p=Math.pow(10,Math.floor(Math.log10(t)));
-  const m=t/p; return (m<1.5?1:m<3.5?2:m<7.5?5:10)*p; }
-const rng=c=>Math.hypot(c.x-own.x,c.y-own.y);
-const brg=c=>((Math.atan2(c.x-own.x,c.y-own.y)*180/Math.PI)+360)%360;
+new ResizeObserver(resize).observe($("scopeWrap"));
 
-function symbol(c,col,type,s){
-  g.strokeStyle=col; g.lineWidth=1.6; g.beginPath();
-  if(type==="circle") g.arc(0,0,s,0,Math.PI*2); else g.rect(-s,-s,2*s,2*s);
-  g.stroke();
+function niceStep(range){ const t=range/4, p=Math.pow(10,Math.floor(Math.log10(t))), m=t/p;
+  return (m<1.5?1:m<3.5?2:m<7.5?5:10)*p; }
+const rng=c=>Math.hypot(c.x-ship.x,c.y-ship.y);
+const brg=c=>Sim.norm(Math.atan2(c.x-ship.x,c.y-ship.y)*180/Math.PI);
+function scopeGeom(){ return {cx:W/2,cy:H/2,R:Math.min(W,H)/2-26}; }
+function proj(c,G,px,rot){ // contact -> screen
+  const dx=c.x-ship.x, dy=c.y-ship.y, r=Math.hypot(dx,dy), b=Math.atan2(dx,dy)-rot*Math.PI/180;
+  return {x:G.cx+Math.sin(b)*r*px, y:G.cy-Math.cos(b)*r*px};
 }
+
 function draw(){
-  g.setTransform(dpr,0,0,dpr,0,0);
-  g.clearRect(0,0,W,H);
-  const cx=W/2, cy=H/2, R=Math.min(W,H)/2-26;
-  if(R<40) return;
-  const range=RANGES[S.ri], px=R/range;
+  g.setTransform(dpr,0,0,dpr,0,0); g.clearRect(0,0,W,H);
+  const G=scopeGeom(), cx=G.cx, cy=G.cy, R=G.R; if(R<40) return;
+  const range=RANGES[S.ri], px=R/range, rot=S.hup?ship.hdg:0;
+  const A=b=>(b-rot-90)*Math.PI/180; // true bearing -> canvas angle
 
-  // outer bearing ring + ticks
   g.strokeStyle="#7d8488"; g.lineWidth=1; g.beginPath(); g.arc(cx,cy,R,0,Math.PI*2); g.stroke();
   g.fillStyle="#9aa1a5"; g.font="11px monospace"; g.textAlign="center"; g.textBaseline="middle";
   for(let d=0;d<360;d+=5){
-    const a=(d-90)*Math.PI/180, long=d%10===0, l=long?9:5;
-    g.beginPath(); g.moveTo(cx+Math.cos(a)*R,cy+Math.sin(a)*R);
-    g.lineTo(cx+Math.cos(a)*(R-l),cy+Math.sin(a)*(R-l)); g.stroke();
-    if(d%30===0){ g.fillText(String(d),cx+Math.cos(a)*(R+15),cy+Math.sin(a)*(R+15)); }
+    const a=A(d), l=d%10===0?9:5;
+    g.beginPath(); g.moveTo(cx+Math.cos(a)*R,cy+Math.sin(a)*R); g.lineTo(cx+Math.cos(a)*(R-l),cy+Math.sin(a)*(R-l)); g.stroke();
+    if(d%30===0) g.fillText(String(d),cx+Math.cos(a)*(R+15),cy+Math.sin(a)*(R+15));
   }
-  // grid: crosshair + 30° spokes
-  if(S.grid){
-    g.strokeStyle="#565c60"; g.lineWidth=1;
-    for(let d=0;d<360;d+=30){ const a=(d-90)*Math.PI/180;
-      g.beginPath(); g.moveTo(cx,cy); g.lineTo(cx+Math.cos(a)*R,cy+Math.sin(a)*R); g.stroke(); }
-  }
-  // range rings
+  if(S.grid){ g.strokeStyle="#34383b";
+    for(let d=0;d<360;d+=30){ const a=A(d); g.beginPath(); g.moveTo(cx,cy); g.lineTo(cx+Math.cos(a)*R,cy+Math.sin(a)*R); g.stroke(); } }
   if(S.rings){
-    const st=niceStep(range);
-    g.strokeStyle="#565c60"; g.fillStyle="#8d9498"; g.textAlign="left";
-    for(let r=st;r<range-st*0.05;r+=st){
-      g.beginPath(); g.arc(cx,cy,r*px,0,Math.PI*2); g.stroke();
-      g.fillText(r%1?r.toFixed(1):r, cx+4, cy-r*px-6);
-    }
+    const st=niceStep(range); g.strokeStyle="#34383b"; g.fillStyle="#8d9498"; g.textAlign="left";
+    for(let r=st;r<range-st*0.05;r+=st){ g.beginPath(); g.arc(cx,cy,r*px,0,Math.PI*2); g.stroke();
+      g.fillText(r%1?r.toFixed(1):r,cx+4,cy-r*px-6); }
   }
+  // heading arrow on the ring
+  { const a=A(ship.hdg), ux=Math.cos(a), uy=Math.sin(a), tx=-uy, ty=ux;
+    g.fillStyle="#fff"; g.beginPath();
+    g.moveTo(cx+ux*(R+5),cy+uy*(R+5));
+    g.lineTo(cx+ux*(R-9)+tx*6,cy+uy*(R-9)+ty*6);
+    g.lineTo(cx+ux*(R-9)-tx*6,cy+uy*(R-9)-ty*6);
+    g.closePath(); g.fill(); }
   // contacts
+  g.lineWidth=1.6;
   for(const c of contacts){
-    const d=rng(c); if(d>range) continue;
-    const x=cx+(c.x-own.x)*px, y=cy-(c.y-own.y)*px;
-    g.save(); g.translate(x,y);
-    symbol(c,COL[c.cls],"square",5);
-    if(S.sel===c.id){ g.strokeStyle="#fff"; g.lineWidth=1; g.strokeRect(-9,-9,18,18); }
-    if(S.labels){ g.fillStyle=COL[c.cls]; g.textAlign="left"; g.textBaseline="middle";
-      g.fillText(String(c.id).padStart(4,"0"),11,0); }
+    if(rng(c)>range) continue;
+    const p=proj(c,G,px,rot); g.save(); g.translate(p.x,p.y);
+    g.strokeStyle=COL[c.cls]; g.strokeRect(-5,-5,10,10);
+    if(S.sel===c.id){ g.strokeStyle="#fff"; g.lineWidth=1; g.strokeRect(-9,-9,18,18); g.lineWidth=1.6; }
+    if(S.labels){ g.fillStyle=COL[c.cls]; g.textAlign="left"; g.textBaseline="middle"; g.fillText(String(c.id).padStart(4,"0"),11,0); }
     g.restore();
   }
-  // own ship (white square)
-  g.save(); g.translate(cx,cy); symbol(null,COL.own,"square",5);
-  g.fillStyle=COL.own; g.fillRect(-1.5,-1.5,3,3); g.restore();
+  // own ship: white square + short heading line
+  { const a=A(ship.hdg); g.strokeStyle="#fff"; g.lineWidth=1.6;
+    g.strokeRect(cx-5,cy-5,10,10);
+    g.beginPath(); g.moveTo(cx+Math.cos(a)*5,cy+Math.sin(a)*5); g.lineTo(cx+Math.cos(a)*20,cy+Math.sin(a)*20); g.stroke(); }
 }
 
-// ---- track table ----
+// ---- HUD / text ----
+function fmtPos(deg,p,n,w){ const a=Math.abs(deg), d=Math.floor(a), m=(a-d)*60;
+  return String(d).padStart(w,"0")+"°"+m.toFixed(3).padStart(6,"0")+"'"+(deg>=0?p:n); }
+function hud(){
+  const lat=LAT0+ship.y/60, lon=LON0+ship.x/(60*Math.cos(lat*Math.PI/180));
+  $("pos").textContent=fmtPos(lat,"N","S",2)+" "+fmtPos(lon,"E","W",3);
+  $("utc").textContent=new Date().toISOString().slice(0,19).replace("T"," ");
+  $("crs").textContent=pad3(ship.hdg)+"°";
+  $("spdT").textContent=ship.spd.toFixed(1);
+  $("spdA").textContent=ship.spd.toFixed(1); $("spdO").textContent=ship.ordSpd;
+  $("hdgA").textContent=pad3(ship.hdg); $("hdgO").textContent=pad3(ship.ordHdg);
+  for(const [id,v] of [["sRev",Sim.CFG.REVERSE],["sStop",0],["sCru",Sim.CFG.CRUISE],["sFlk",Sim.CFG.FLANK]])
+    $(id).classList.toggle("on",ship.ordSpd===v);
+}
+function ui(){
+  $("rv").textContent=RANGES[S.ri]+" NM";
+  $("ringsB").textContent=S.rings?"On · "+niceStep(RANGES[S.ri]):"Off"; $("ringsB").classList.toggle("off",!S.rings);
+  $("labB").textContent=S.labels?"On":"Off"; $("labB").classList.toggle("off",!S.labels);
+  $("gridB").textContent=S.grid?"On":"Off"; $("gridB").classList.toggle("off",!S.grid);
+  $("orient").textContent=S.hup?"HEADING UP":"NORTH UP";
+  $("tsB").textContent=TS[S.ts]+"x";
+  fillTable();
+}
 function fillTable(){
-  const tb=document.getElementById("tbody"); tb.innerHTML="";
-  const range=RANGES[S.ri];
-  const list=contacts.filter(c=>rng(c)<=range).sort((a,b)=>a.id-b.id);
-  document.getElementById("tcount").textContent=list.length;
+  const range=RANGES[S.ri], list=contacts.filter(c=>rng(c)<=range).sort((a,b)=>a.id-b.id);
+  $("tcount").textContent=list.length;
+  if(!$("tList").classList.contains("open")) return;
+  const tb=$("tbody"); tb.innerHTML="";
   for(const c of list){
     const tr=document.createElement("tr"); tr.className=c.cls+(S.sel===c.id?" sel":"");
-    tr.innerHTML=`<td>${String(c.id).padStart(4,"0")}</td><td>${c.cat}</td><td>${Math.round(brg(c)).toString().padStart(3,"0")}</td><td>${rng(c).toFixed(1)}</td>`;
-    tr.onclick=()=>{S.sel=S.sel===c.id?null:c.id; fillTable(); draw();};
+    tr.innerHTML=`<td>${String(c.id).padStart(4,"0")}</td><td>${c.cat}</td><td>${pad3(brg(c))}</td><td>${rng(c).toFixed(1)}</td>`;
+    tr.onclick=()=>{S.sel=S.sel===c.id?null:c.id; fillTable();};
     tb.appendChild(tr);
   }
 }
-function ui(){
-  document.getElementById("rv").textContent=RANGES[S.ri]+" NM";
-  const st=niceStep(RANGES[S.ri]);
-  document.getElementById("ringsB").textContent=S.rings?"On · "+st+" NM":"Off";
-  document.getElementById("ringsB").classList.toggle("off",!S.rings);
-  document.getElementById("labB").textContent=S.labels?"On":"Off";
-  document.getElementById("labB").classList.toggle("off",!S.labels);
-  document.getElementById("gridB").textContent=S.grid?"On":"Off";
-  document.getElementById("gridB").classList.toggle("off",!S.grid);
-  fillTable(); draw();
+
+// ---- controls ----
+$("tHead").onclick=()=>{ $("tList").classList.toggle("open"); fillTable(); };
+$("sRev").onclick=()=>ship.ordSpd=Sim.CFG.REVERSE;
+$("sStop").onclick=()=>ship.ordSpd=0;
+$("sCru").onclick=()=>ship.ordSpd=Sim.CFG.CRUISE;
+$("sFlk").onclick=()=>ship.ordSpd=Sim.CFG.FLANK;
+
+function setOrdHdg(v){ ship.ordHdg=Sim.norm(v); $("hdgIn").value=pad3(ship.ordHdg); }
+function holdBtn(el,fn){
+  let t=0,i=0; const stop=()=>{clearTimeout(t);clearInterval(i);};
+  el.addEventListener("pointerdown",e=>{ e.preventDefault(); stop(); fn(); t=setTimeout(()=>{i=setInterval(fn,60);},400); });
+  ["pointerup","pointercancel","pointerleave"].forEach(ev=>el.addEventListener(ev,stop));
+  el.addEventListener("contextmenu",e=>e.preventDefault());
 }
-const $=id=>document.getElementById(id);
+holdBtn($("hL"),()=>setOrdHdg(ship.ordHdg-1));
+holdBtn($("hR"),()=>setOrdHdg(ship.ordHdg+1));
+const hin=$("hdgIn");
+function commitHdg(){ const v=parseInt(hin.value,10); if(!isNaN(v)) ship.ordHdg=Sim.norm(v); hin.value=pad3(ship.ordHdg); }
+hin.addEventListener("focus",()=>hin.select());
+hin.addEventListener("input",()=>{ hin.value=hin.value.replace(/\D/g,""); if(hin.value.length===3){ commitHdg(); hin.blur(); } });
+hin.addEventListener("keydown",e=>{ if(e.key==="Enter"){ commitHdg(); hin.blur(); } });
+hin.addEventListener("blur",commitHdg);
+
+$("orient").onclick=()=>{S.hup=!S.hup;ui();};
 $("rm").onclick=()=>{S.ri=Math.max(0,S.ri-1);ui();};
 $("rp").onclick=()=>{S.ri=Math.min(RANGES.length-1,S.ri+1);ui();};
 $("ringsB").onclick=()=>{S.rings=!S.rings;ui();};
 $("labB").onclick=()=>{S.labels=!S.labels;ui();};
 $("gridB").onclick=()=>{S.grid=!S.grid;ui();};
+$("tsB").onclick=()=>{S.ts=(S.ts+1)%TS.length;ui();};
 
-// tap a contact on the scope to select
 cv.addEventListener("pointerdown",e=>{
   const r=cv.getBoundingClientRect(), mx=e.clientX-r.left, my=e.clientY-r.top;
-  const cx=W/2, cy=H/2, R=Math.min(W,H)/2-26, range=RANGES[S.ri], px=R/range;
+  const G=scopeGeom(), range=RANGES[S.ri], px=G.R/range, rot=S.hup?ship.hdg:0;
   let best=null,bd=22;
-  for(const c of contacts){ if(rng(c)>range) continue;
-    const d=Math.hypot(cx+(c.x-own.x)*px-mx, cy-(c.y-own.y)*px-my);
-    if(d<bd){bd=d;best=c;} }
-  S.sel=best?best.id:null; fillTable(); draw();
+  for(const c of contacts){ if(rng(c)>range) continue; const p=proj(c,G,px,rot), d=Math.hypot(p.x-mx,p.y-my); if(d<bd){bd=d;best=c;} }
+  S.sel=best?best.id:null; fillTable();
 });
 
-setInterval(()=>{ $("utc").textContent=new Date().toISOString().slice(0,19).replace("T"," "); },500);
-addEventListener("resize",resize);
-resize(); ui();
+// ---- loop ----
+let last=performance.now();
+function frame(t){
+  let sdt=Math.min(0.1,(t-last)/1000)*TS[S.ts]; last=t;
+  while(sdt>0){ const h=Math.min(0.5,sdt); Sim.step(ship,h); sdt-=h; }
+  hud(); draw(); requestAnimationFrame(frame);
+}
+setInterval(fillTable,500);
+resize(); ui(); requestAnimationFrame(frame);
 </script>
 </body>
 </html>
