@@ -1,0 +1,195 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>EMCON</title>
+<style>
+:root{
+  --bg:#34383b; --panel:#2b2e31; --line:#7d8488; --line-dim:#565c60; --text:#d7dadc; --dim:#8d9498;
+  --own:#ffffff; --ally:#4da3ff; --unk:#ffd83a; --host:#ff4a4a;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
+  font:13px/1.25 "Consolas","DejaVu Sans Mono",monospace;overflow:hidden;touch-action:none;user-select:none}
+#app{display:flex;flex-direction:column;height:100%;padding:env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left)}
+#top{display:flex;gap:14px;padding:6px 10px;background:var(--panel);border-bottom:1px solid var(--line-dim);white-space:nowrap;overflow:hidden}
+#top b{color:var(--dim);font-weight:normal}
+#main{flex:1;display:flex;min-height:0}
+#scopeWrap{flex:1;position:relative;min-width:0;min-height:0}
+canvas{position:absolute;inset:0;width:100%;height:100%}
+#side{width:300px;background:var(--panel);border-left:1px solid var(--line-dim);display:flex;flex-direction:column;min-height:0}
+#side h4{margin:0;padding:5px 8px;text-align:center;font-weight:normal;color:var(--dim);border-bottom:1px solid var(--line-dim)}
+#tracks{flex:1;overflow:auto}
+table{width:100%;border-collapse:collapse}
+th{color:var(--dim);font-weight:normal;text-align:right;padding:3px 6px;position:sticky;top:0;background:var(--panel)}
+td{text-align:right;padding:3px 6px}
+th:first-child,td:first-child{text-align:left}
+tr.unk td:first-child{color:var(--unk)}
+tr.sel{background:#4a5054}
+#ctl{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;padding:6px 8px;background:var(--panel);border-top:1px solid var(--line-dim)}
+.grp{display:flex;align-items:center;gap:5px}
+.grp span{color:var(--dim)}
+button{font:inherit;color:var(--text);background:#3d4245;border:1px solid var(--line);padding:7px 12px;min-width:40px}
+button:active{background:#555c60}
+button.off{color:var(--dim);border-color:var(--line-dim)}
+.val{min-width:64px;text-align:center}
+@media (max-width:760px){
+  #main{flex-direction:column}
+  #side{width:auto;height:30%;border-left:0;border-top:1px solid var(--line-dim)}
+  #top{gap:10px;font-size:12px}
+  #top .hide-s{display:none}
+}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="top">
+    <div><b>POS</b> 41°11.295'N 021°26.496'E</div>
+    <div class="hide-s"><b>UTC</b> <span id="utc"></span></div>
+    <div><b>CRS</b> 000°</div>
+    <div><b>SPD</b> 0 KT</div>
+  </div>
+  <div id="main">
+    <div id="scopeWrap"><canvas id="cv"></canvas></div>
+    <div id="side">
+      <h4>TRACKS: <span id="tcount">0</span></h4>
+      <div id="tracks"><table>
+        <thead><tr><th>TRK</th><th>CAT</th><th>BRG</th><th>RNG</th></tr></thead>
+        <tbody id="tbody"></tbody></table></div>
+    </div>
+  </div>
+  <div id="ctl">
+    <div class="grp"><span>Range</span><button id="rm">-</button><span class="val" id="rv"></span><button id="rp">+</button></div>
+    <div class="grp"><span>Rings</span><button id="ringsB">On</button></div>
+    <div class="grp"><span>Labels</span><button id="labB">On</button></div>
+    <div class="grp"><span>Grid</span><button id="gridB">On</button></div>
+  </div>
+</div>
+<script>
+"use strict";
+// ---- data (static for stage 1) ----
+const RANGES=[5,10,20,40,70,100,150,200,300];
+const own={x:0,y:0}; // nm, +y = north
+const contacts=[ // id, bearing deg, range nm, cat
+  [1,143,28.7],[2,255,32.1],[3,260,0.9],[4,243,154],[5,197,65.8],
+  [6,199,216],[7,351,214],[8,17,12.4],[9,88,44.0],[10,312,8.2]
+].map(([id,b,r])=>({id,cat:"SRF",cls:"unk",
+  x:Math.sin(b*Math.PI/180)*r, y:Math.cos(b*Math.PI/180)*r}));
+
+const S={ri:4,rings:true,labels:true,grid:true,sel:null};
+const COL={own:"#fff",ally:"#4da3ff",unk:"#ffd83a",host:"#ff4a4a"};
+const cv=document.getElementById("cv"),g=cv.getContext("2d");
+let W=0,H=0,dpr=1;
+
+function resize(){
+  dpr=window.devicePixelRatio||1;
+  const r=cv.getBoundingClientRect(); W=r.width; H=r.height;
+  cv.width=Math.round(W*dpr); cv.height=Math.round(H*dpr);
+  draw();
+}
+function niceStep(range){ const t=range/4; const p=Math.pow(10,Math.floor(Math.log10(t)));
+  const m=t/p; return (m<1.5?1:m<3.5?2:m<7.5?5:10)*p; }
+const rng=c=>Math.hypot(c.x-own.x,c.y-own.y);
+const brg=c=>((Math.atan2(c.x-own.x,c.y-own.y)*180/Math.PI)+360)%360;
+
+function symbol(c,col,type,s){
+  g.strokeStyle=col; g.lineWidth=1.6; g.beginPath();
+  if(type==="circle") g.arc(0,0,s,0,Math.PI*2); else g.rect(-s,-s,2*s,2*s);
+  g.stroke();
+}
+function draw(){
+  g.setTransform(dpr,0,0,dpr,0,0);
+  g.clearRect(0,0,W,H);
+  const cx=W/2, cy=H/2, R=Math.min(W,H)/2-26;
+  if(R<40) return;
+  const range=RANGES[S.ri], px=R/range;
+
+  // outer bearing ring + ticks
+  g.strokeStyle="#7d8488"; g.lineWidth=1; g.beginPath(); g.arc(cx,cy,R,0,Math.PI*2); g.stroke();
+  g.fillStyle="#9aa1a5"; g.font="11px monospace"; g.textAlign="center"; g.textBaseline="middle";
+  for(let d=0;d<360;d+=5){
+    const a=(d-90)*Math.PI/180, long=d%10===0, l=long?9:5;
+    g.beginPath(); g.moveTo(cx+Math.cos(a)*R,cy+Math.sin(a)*R);
+    g.lineTo(cx+Math.cos(a)*(R-l),cy+Math.sin(a)*(R-l)); g.stroke();
+    if(d%30===0){ g.fillText(String(d),cx+Math.cos(a)*(R+15),cy+Math.sin(a)*(R+15)); }
+  }
+  // grid: crosshair + 30° spokes
+  if(S.grid){
+    g.strokeStyle="#565c60"; g.lineWidth=1;
+    for(let d=0;d<360;d+=30){ const a=(d-90)*Math.PI/180;
+      g.beginPath(); g.moveTo(cx,cy); g.lineTo(cx+Math.cos(a)*R,cy+Math.sin(a)*R); g.stroke(); }
+  }
+  // range rings
+  if(S.rings){
+    const st=niceStep(range);
+    g.strokeStyle="#565c60"; g.fillStyle="#8d9498"; g.textAlign="left";
+    for(let r=st;r<range-st*0.05;r+=st){
+      g.beginPath(); g.arc(cx,cy,r*px,0,Math.PI*2); g.stroke();
+      g.fillText(r%1?r.toFixed(1):r, cx+4, cy-r*px-6);
+    }
+  }
+  // contacts
+  for(const c of contacts){
+    const d=rng(c); if(d>range) continue;
+    const x=cx+(c.x-own.x)*px, y=cy-(c.y-own.y)*px;
+    g.save(); g.translate(x,y);
+    symbol(c,COL[c.cls],"square",5);
+    if(S.sel===c.id){ g.strokeStyle="#fff"; g.lineWidth=1; g.strokeRect(-9,-9,18,18); }
+    if(S.labels){ g.fillStyle=COL[c.cls]; g.textAlign="left"; g.textBaseline="middle";
+      g.fillText(String(c.id).padStart(4,"0"),11,0); }
+    g.restore();
+  }
+  // own ship (white square)
+  g.save(); g.translate(cx,cy); symbol(null,COL.own,"square",5);
+  g.fillStyle=COL.own; g.fillRect(-1.5,-1.5,3,3); g.restore();
+}
+
+// ---- track table ----
+function fillTable(){
+  const tb=document.getElementById("tbody"); tb.innerHTML="";
+  const range=RANGES[S.ri];
+  const list=contacts.filter(c=>rng(c)<=range).sort((a,b)=>a.id-b.id);
+  document.getElementById("tcount").textContent=list.length;
+  for(const c of list){
+    const tr=document.createElement("tr"); tr.className=c.cls+(S.sel===c.id?" sel":"");
+    tr.innerHTML=`<td>${String(c.id).padStart(4,"0")}</td><td>${c.cat}</td><td>${Math.round(brg(c)).toString().padStart(3,"0")}</td><td>${rng(c).toFixed(1)}</td>`;
+    tr.onclick=()=>{S.sel=S.sel===c.id?null:c.id; fillTable(); draw();};
+    tb.appendChild(tr);
+  }
+}
+function ui(){
+  document.getElementById("rv").textContent=RANGES[S.ri]+" NM";
+  const st=niceStep(RANGES[S.ri]);
+  document.getElementById("ringsB").textContent=S.rings?"On · "+st+" NM":"Off";
+  document.getElementById("ringsB").classList.toggle("off",!S.rings);
+  document.getElementById("labB").textContent=S.labels?"On":"Off";
+  document.getElementById("labB").classList.toggle("off",!S.labels);
+  document.getElementById("gridB").textContent=S.grid?"On":"Off";
+  document.getElementById("gridB").classList.toggle("off",!S.grid);
+  fillTable(); draw();
+}
+const $=id=>document.getElementById(id);
+$("rm").onclick=()=>{S.ri=Math.max(0,S.ri-1);ui();};
+$("rp").onclick=()=>{S.ri=Math.min(RANGES.length-1,S.ri+1);ui();};
+$("ringsB").onclick=()=>{S.rings=!S.rings;ui();};
+$("labB").onclick=()=>{S.labels=!S.labels;ui();};
+$("gridB").onclick=()=>{S.grid=!S.grid;ui();};
+
+// tap a contact on the scope to select
+cv.addEventListener("pointerdown",e=>{
+  const r=cv.getBoundingClientRect(), mx=e.clientX-r.left, my=e.clientY-r.top;
+  const cx=W/2, cy=H/2, R=Math.min(W,H)/2-26, range=RANGES[S.ri], px=R/range;
+  let best=null,bd=22;
+  for(const c of contacts){ if(rng(c)>range) continue;
+    const d=Math.hypot(cx+(c.x-own.x)*px-mx, cy-(c.y-own.y)*px-my);
+    if(d<bd){bd=d;best=c;} }
+  S.sel=best?best.id:null; fillTable(); draw();
+});
+
+setInterval(()=>{ $("utc").textContent=new Date().toISOString().slice(0,19).replace("T"," "); },500);
+addEventListener("resize",resize);
+resize(); ui();
+</script>
+</body>
+</html>
