@@ -14,8 +14,8 @@
     // ESM (passive): hears emitting radars, bearing only. Own-ship data, per-ship later.
     // Detect range = RANGE_FACTOR * emitter radar range, capped by horizon * DUCT (ducting).
     ESM: { H_ANT: 100, RANGE_FACTOR: 2, DUCT: 1.3, INTERVAL: 2, SIGMA: 3, HOLD: 15 },
-    // Identify: needs a continuous radar track for TIME seconds (real time, like all sensors). Track lost = reset to 0.
-    IDENTIFY: { TIME: 20 }
+    // Identify: needs a continuous radar track (real time, like all sensors). Takes longer at long range and for low-RCS (stealthy) contacts. Track lost = reset to 0.
+    IDENTIFY: { TIME: 20, D_REF: 10, MIN: 5, MAX: 90 } // TIME = seconds at D_REF nm for a normal (RCS_REF) contact
   };
   const norm = a => ((a % 360) + 360) % 360;
   const diff = (to, from) => { const d = norm(to - from); return d > 180 ? d - 360 : d; };
@@ -112,20 +112,25 @@
     if (!c.tracked || c.identified || c.idActive) return false;
     c.idActive = true; c.idProg = 0; c.idNote = ""; return true;
   }
+  function identifyTime(c, ship) { // seconds needed now: grows with range, and with low RCS (RCS_REF/rcs)^0.25
+    const I = CFG.IDENTIFY, d = Math.hypot(c.x - ship.x, c.y - ship.y);
+    const t = I.TIME * (0.6 + 0.4 * d / I.D_REF) * Math.pow(CFG.RADAR.RCS_REF / c.rcs, 0.25);
+    return Math.max(I.MIN, Math.min(I.MAX, t));
+  }
   function cancelIdentify(c) { c.idActive = false; c.idProg = 0; c.idNote = ""; }
-  function identifyStep(contacts, dt, radarOn) { // real-time dt, once per frame. Radar silent (EMCON) interrupts at once
+  function identifyStep(contacts, dt, radarOn, ship) { // real-time dt, once per frame. Radar silent (EMCON) interrupts at once
     for (const c of contacts) {
       if (!c.idActive) continue;
       if (!radarOn) { c.idActive = false; c.idProg = 0; c.idNote = "emcon"; continue; }
       if (!c.tracked) { c.idActive = false; c.idProg = 0; c.idNote = "lost"; continue; } // track lost: interrupted, progress resets
-      c.idProg += dt;
-      if (c.idProg >= CFG.IDENTIFY.TIME) {
+      c.idProg += dt / identifyTime(c, ship); // idProg is a fraction 0..1
+      if (c.idProg >= 1) {
         c.idActive = false; c.idProg = 0; c.identified = true; c.idNote = "";
         c.cls = c.side === "ally" ? "ally" : c.side === "enemy" ? "host" : "unk"; // reveals hidden truth, tag locked
       }
     }
   }
 
-  const api = { CFG, norm, diff, newShip, step, newRadar, newContact, pDetect, radarStep, setTag, stepContact, newEsm, pEsm, esmStep, startIdentify, cancelIdentify, identifyStep };
+  const api = { CFG, norm, diff, newShip, step, newRadar, newContact, pDetect, radarStep, setTag, stepContact, newEsm, pEsm, esmStep, startIdentify, cancelIdentify, identifyStep, identifyTime };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.Sim = api;
 })(typeof self !== "undefined" ? self : this);
