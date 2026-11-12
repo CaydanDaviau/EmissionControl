@@ -247,7 +247,7 @@ test("enemy defenses: SAM at ASM after the reaction delay; decoy/ECM/CIWS only o
   const c3 = mkEn(0), a3 = own(c3, "asm", 0, 0.5, { uid: 3, aiT: 0 }); c3.def.sam = 0; run(dt => Sim.aiDefStep(c3, [a3], dt), 200); assert.ok(!a3.state, "ASM: no decoy/ECM/CIWS effect");
   const c4 = mkEn(0), s4 = own(c4, "ssm", 0, 0.5, { uid: 4, aiT: 0 }); c4.def.sam = 0; c4.def.decoy = 0; run(dt => Sim.aiDefStep(c4, [s4], dt), 200); assert.ok(s4.state, "SSM at 0.5 nm: CIWS/ECM get it");
   // SAM flight resolves the kill
-  Sim.CFG.DEFENSE.SAM.P = 1; run(dt => Sim.aiSamMove(c, ms, dt), 30); assert.equal(asm.state, "dead"); Sim.CFG.DEFENSE.SAM.P = 0.5;
+  Sim.CFG.DEFENSE.SAM.P = 1; run(dt => Sim.aiSamMove(c, ms, dt), 30); assert.equal(asm.state, "dead"); Sim.CFG.DEFENSE.SAM.P = 0.35;
 });
 
 test("horizon cap: radar and ESM detect nothing beyond it (radar 32 nm, ESM x1.3); both work inside", () => {
@@ -276,4 +276,49 @@ test("AI ESM investigation: hears us without a track -> heads along the bearing;
   const d = mkAi(0, 70); d.ai.state = "inv"; d.ai.hb = 0; d.ai.il = 0; ship.x = 0; ship.y = 300; run(dt => Sim.aiStep(d, ship, false, dt), A.INV_HOLD + 5); assert.equal(d.ai.state, "patrol");
   // neutral known: ignores ESM
   const e = mkAi(0, 70); e.ai.known = "neutral"; ship.y = 40; run(dt => Sim.aiStep(e, ship, true, dt), 30); assert.equal(e.ai.state, "patrol");
+});
+
+// ---- LINK, ally, ESM fixes ----
+test("SAM intercept 35%, ECM jamming 3%/s", () => { assert.equal(Sim.CFG.DEFENSE.SAM.P, 0.35); assert.equal(Sim.CFG.DEFENSE.ECM.P, 0.03); });
+test("rays: crossing point, rejects parallel / behind / too far", () => {
+  const p = Sim.rays(0, 0, 45, 10, 0, 315); assert.ok(Math.abs(p.x - 5) < 1e-6 && Math.abs(p.y - 5) < 1e-6);
+  assert.equal(Sim.rays(0, 0, 0, 5, 0, 0), null, "parallel"); assert.equal(Sim.rays(0, 0, 45, 10, 0, 135), null, "crossing behind");
+  assert.equal(Sim.rays(0, 0, 1, 5, 0, 359), null, "beyond MAXR (or near parallel)");
+});
+test("esmStep stores the ally's bearing under its own key and does not take an ESM number", () => {
+  const al = Sim.newAlly(5, 0), esmA = Sim.newEsm(9), c = mk(0, 20, { emit: { name: "X", range: 35 } });
+  run(dt => Sim.esmStep(esmA, al, [c], dt, "esmA"), 10); assert.ok(c.esmA); assert.equal(c.esm, null); assert.ok(!c.esmNo);
+});
+test("LINK toggles, refuses under EMCON / destroyed sensors, and is heard by enemy ESM", () => {
+  const ship = Sim.newShip(); assert.ok(!ship.link); Sim.toggleLink(ship, false); assert.equal(ship.link, true);
+  assert.ok(/EMCON/.test(Sim.toggleLink(ship, true))); assert.equal(ship.link, false);
+  ship.dead[1] = true; assert.ok(/Sensors/.test(Sim.toggleLink(ship, false)));
+  const s2 = Sim.newShip(), c = mkAi(20, 70); Sim.toggleLink(s2, false); run(dt => Sim.aiStep(c, s2, false, dt), 20); assert.ok(c.ai.hears, "radar off, LINK on: heard");
+});
+test("ally holds a slot 5 nm abeam, follows our course and speed", () => {
+  const ship = Sim.newShip(), al = Sim.newAlly(0, 0); ship.spd = 15; ship.hdg = 0;
+  run(dt => { ship.y += ship.spd * dt / 3600; Sim.allyStep(al, ship, dt); }, 1500);
+  assert.ok(Math.abs(al.x - 5) < 0.5 && Math.abs(al.y - ship.y) < 0.5, al.x + "," + (al.y - ship.y)); assert.ok(Math.abs(al.spd - 15) < 3);
+});
+test("fix marker: both ESM lines fresh and crossing -> marker for 5 s, then gone", () => {
+  const ship = Sim.newShip(), al = Sim.newAlly(5, 0), esm = Sim.newEsm(1), esmA = Sim.newEsm(2), c = mk(0, 40, { emit: { name: "X", range: 35 } }), fixes = [];
+  esm.t = 10; esmA.t = 10; c.esmNo = 1; c.esm = { brg: 0, t: 10 }; c.esmA = { brg: Sim.norm(Math.atan2(-5, 40) * 180 / Math.PI), t: 10 };
+  Sim.fixStep(fixes, ship, al, [c], esm, esmA, 0.1); assert.equal(fixes.length, 1); assert.ok(Math.abs(fixes[0].px) < 0.1 && Math.abs(fixes[0].py - 40) < 0.1); assert.ok(fixes[0].marker && fixes[0].tracked);
+  esm.t = 20; esmA.t = 20; run(dt => Sim.fixStep(fixes, ship, al, [c], esm, esmA, dt), 4); assert.equal(fixes.length, 1, "still alive after 4 s");
+  run(dt => Sim.fixStep(fixes, ship, al, [c], esm, esmA, dt), 2); assert.equal(fixes.length, 0, "gone after 5 s without fresh lines");
+});
+test("firing at a fix: missile flies to the fixed point and hits only a ship within the seeker radius", () => {
+  const s = Sim.newShip(), c = mkEn(30); Sim.CFG.DAMAGE.P_HIT = 1; const fx = { id: "F1", marker: true, tracked: true, seen: true, px: c.x, py: c.y, x: c.x, y: c.y };
+  s.fire = { slot: 0, tid: "F1", t: 0.05 }; const ms = []; Sim.fireStep(s, [fx], ms, 0.1); assert.equal(ms.length, 1); assert.equal(ms[0].tid, "mk"); assert.equal(ms[0].tx, c.x);
+  ms[0].x = c.x; ms[0].y = c.y - 0.2; Sim.stepMissiles(ms, [c], 0.1, s); assert.ok(/FIX HIT/.test(s.strikeMsg), s.strikeMsg); assert.ok(c.dead.some(Boolean));
+  const c2 = mkEn(30), m2 = [own(c2, "ssm", c2.x + 12, c2.y, { tid: "mk", tx: c2.x + 12, ty: c2.y })]; Sim.stepMissiles(m2, [c2], 0.1, s); assert.ok(/FIX MISSED/.test(s.strikeMsg)); Sim.CFG.DAMAGE.P_HIT = 0.9;
+});
+test("AI: linked enemies cross ESM bearings on us -> shared fix; fires at it when hostile known; missile acquires us only near the fix", () => {
+  const ship = Sim.newShip(); ship.y = 30; const a = mkAi(0, 70), b = mkAi(0, 70); a.id = 1; b.id = 2; b.x = 25; b.y = 0; b.ai = Sim.newAi(4, null);
+  run(dt => { Sim.aiStep(a, ship, true, dt); Sim.aiStep(b, ship, true, dt); Sim.aiFixStep([a, b], dt); }, 20);
+  assert.ok(a.ai.fix && b.ai.fix, "both hold a fix"); assert.ok(Math.hypot(a.ai.fix.x - 0, a.ai.fix.y - 30) < 80);
+  assert.equal(Sim.aiFireStep(a, ship, [], 1), null, "does not know it is hostile: no shot"); a.ai.known = "host"; a.ai.fix = { x: 3, y: 38, t: 5, host: true }; a.ai.state = "patrol";
+  const ms = []; const m = Sim.aiFireStep(a, ship, ms, 1); assert.ok(m && m.tx === 3 && m.ty === 38, "fired at the fix");
+  const lost = { uid: 2, side: "enemy", w: "ssm", tid: "own", x: 0, y: 19.9, hdg: 0, spd: 480, fuel: 99, tx: 0, ty: 20 }; ship.y = 100; const l = [lost]; Sim.stepMissiles(l, [], 0.1, ship); assert.equal(l.length, 0, "reached the fix, no ship near: lost"); assert.ok(/MISSED/.test(ship.hitMsg));
+  const hit = { uid: 3, side: "enemy", w: "ssm", tid: "own", x: 0, y: 36, hdg: 0, spd: 480, fuel: 99, tx: 0, ty: 20 }; ship.y = 40; Sim.stepMissiles([hit], [], 0.1, ship); assert.equal(hit.tx, undefined, "ship within 5 nm: seeker acquired it");
 });
