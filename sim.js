@@ -23,7 +23,7 @@
     DAMAGE: { P_HIT: 0.9, DRIFT_DECEL: 1, DEBUG_DIST: 20, SSM: { second: 0.15, nav: false }, ASM: { second: 0.55, nav: true } },
     // Defense (game data, tunable). Decoy: small chance per deploy to seduce each incoming missile (it then flies straight on, unguided). CIWS: fixed chance per second on ONE missile inside its range.
     // SAM: long range, highest kill chance, limited ammo; resolves after flight time. Dead missiles stay as a white X for X_TIME real seconds.
-    DEFENSE: { DECOY: { P: 0.2, AMMO: 4, CD: 20 }, CIWS: { RANGE: 1, P: 0.1 }, SAM: { RANGE: 25, P: 0.5, AMMO: 8, SPEED: 2000 }, X_TIME: 10, STRAY: 60 },
+    DEFENSE: { ECM: { NAME: "AN/SLQ-32", RANGE: 20, P: 0.08 }, DECOY: { P: 0.2, AMMO: 4, CD: 20 }, CIWS: { RANGE: 1, P: 0.1 }, SAM: { RANGE: 25, P: 0.5, AMMO: 8, SPEED: 2000 }, X_TIME: 10, STRAY: 60 },
     WEAPON: { COUNTDOWN: 5, ARRIVE: 0.5 }, // launch countdown (s, real time); arrive radius (nm)
     IDENTIFY: { TIME: 20, D_REF: 10, MIN: 5, MAX: 90 } // TIME = seconds at D_REF nm for a normal (RCS_REF) contact
   };
@@ -34,7 +34,7 @@
   function newShip() { return { x: 0, y: 0, hdg: 0, spd: 0, ordHdg: 0, ordSpd: 0,
     loadout: [{ w: "ssm", ammo: 8 }, { w: "asm", ammo: 4 }], fire: null, fireMsg: "", nMsl: 0,
     dead: [false, false, false, false], sunk: false, wreck: false, rng: { seed: 20261113 }, nEnemy: 0, hitSeq: 0, hitMsg: "", uid: 0,
-    def: { decoy: CFG.DEFENSE.DECOY.AMMO, sam: CFG.DEFENSE.SAM.AMMO, cd: 0, ciws: null, ciwsOn: null }, sams: [] }; } // ciws = manual target uid (null = auto), ciwsOn = uid being engaged now; sams = pending intercepts // x east nm, y north nm
+    def: { decoy: CFG.DEFENSE.DECOY.AMMO, sam: CFG.DEFENSE.SAM.AMMO, cd: 0, ciws: null, ciwsOn: null, ecm: false }, sams: [] }; } // ciws = manual target uid (null = auto), ciwsOn = uid being engaged now; sams = pending intercepts // x east nm, y north nm
 
   function step(s, dt) {
     if (s.wreck) return;
@@ -191,13 +191,13 @@
     ++ship.nEnemy;
     missiles.push({ uid: ++ship.uid, n: ship.nEnemy, lbl: "H" + ship.nEnemy, side: "enemy", w, tid: "own", x: ship.x + Math.sin(a) * d, y: ship.y + Math.cos(a) * d, hdg: norm(b + 180), spd: W.speed, fuel: W.range });
   }
-  function resetShip(ship) { ship.def = { decoy: CFG.DEFENSE.DECOY.AMMO, sam: CFG.DEFENSE.SAM.AMMO, cd: 0, ciws: null, ciwsOn: null }; ship.sams = [];
+  function resetShip(ship) { ship.def = { decoy: CFG.DEFENSE.DECOY.AMMO, sam: CFG.DEFENSE.SAM.AMMO, cd: 0, ciws: null, ciwsOn: null, ecm: false }; ship.sams = [];
     ship.dead = [false, false, false, false]; ship.sunk = false; ship.wreck = false; ship.fire = null; ship.fireMsg = ""; ship.hitMsg = ""; }
   function stepMissiles(missiles, contacts, dt, ship) { // scaled dt. tid "own" = aimed at the own ship (true position). Others: last known position, no damage yet
     for (let i = missiles.length - 1; i >= 0; i--) {
       const m = missiles[i], W = CFG.WEAPONS[m.w], own = m.tid === "own";
       if (m.state === "dead") continue;                                   // destroyed: frozen, removed by reap()
-      if (m.state === "decoy") {                                         // seduced: flies straight, no guidance, no hit
+      if (m.state === "decoy" || m.state === "jam") {                                         // seduced: flies straight, no guidance, no hit
         const d = m.spd * dt / 3600, r = m.hdg * Math.PI / 180; m.x += Math.sin(r) * d; m.y += Math.cos(r) * d; m.fuel -= d;
         if (m.fuel <= 0 || Math.hypot(m.x - ship.x, m.y - ship.y) > CFG.DEFENSE.STRAY) missiles.splice(i, 1);
         continue; }
@@ -221,11 +221,13 @@
   const live = m => m.side === "enemy" && !m.state;
   const mdist = (ship, m) => Math.hypot(m.x - ship.x, m.y - ship.y);
   function defCheck(ship) { return ship.dead[3] ? "Defense station destroyed." : ""; }
+  function seduce(ship, m, st) { m.state = st; m.hdg = norm(m.hdg + (rand(ship.rng) < 0.5 ? -1 : 1) * (15 + rand(ship.rng) * 15)); } // loses guidance, veers off, flies straight
+  function toggleEcm(ship) { const why = defCheck(ship); if (why) return why; ship.def.ecm = !ship.def.ecm; return CFG.DEFENSE.ECM.NAME + (ship.def.ecm ? " jamming ON." : " OFF."); }
   function deployDecoy(ship, missiles) { // returns message. Each incoming missile aimed at us rolls P; success = decoyed
     const D = CFG.DEFENSE.DECOY, df = ship.def, why = defCheck(ship);
     if (why) return why; if (df.decoy <= 0) return "No decoys left."; if (df.cd > 0) return "Decoy reloading: " + Math.ceil(df.cd) + " s.";
     df.decoy--; df.cd = D.CD; let n = 0;
-    for (const m of missiles) if (live(m) && m.tid === "own" && rand(ship.rng) < D.P) { m.state = "decoy"; m.hdg = norm(m.hdg + (rand(ship.rng) < 0.5 ? -1 : 1) * (15 + rand(ship.rng) * 15)); n++; }
+    for (const m of missiles) if (live(m) && m.tid === "own" && rand(ship.rng) < D.P) { seduce(ship, m, "decoy"); n++; }
     return n ? "Decoy deployed: " + n + " missile(s) seduced." : "Decoy deployed: no effect.";
   }
   function launchSam(ship, missiles, uid) {
@@ -237,7 +239,8 @@
   function setCiws(ship, uid) { ship.def.ciws = uid == null ? null : uid; } // manual target (even out of range) disables auto
   function stepDefense(ship, missiles, dt) { // scaled dt
     const df = ship.def, S = CFG.DEFENSE; df.cd = Math.max(0, df.cd - dt);
-    if (ship.dead[3]) { df.ciwsOn = null; ship.sams.length = 0; return; }
+    if (ship.dead[3]) { df.ciwsOn = null; df.ecm = false; ship.sams.length = 0; return; }
+    if (df.ecm) for (const m of missiles) if (live(m) && m.tid === "own" && mdist(ship, m) <= S.ECM.RANGE && rand(ship.rng) < 1 - Math.pow(1 - S.ECM.P, dt)) seduce(ship, m, "jam");
     for (let i = ship.sams.length - 1; i >= 0; i--) { const q = ship.sams[i], m = missiles.find(k => k.uid === q.uid); // SAM flies straight at its target
       if (!m || !live(m)) { ship.sams.splice(i, 1); continue; }
       const dx = m.x - q.x, dy = m.y - q.y, dd = Math.hypot(dx, dy), mv = S.SAM.SPEED * dt / 3600; q.hdg = norm(Math.atan2(dx, dy) * 180 / Math.PI);
@@ -250,6 +253,6 @@
     if (tg && mdist(ship, tg) <= S.CIWS.RANGE) { df.ciwsOn = tg.uid; if (rand(ship.rng) < 1 - Math.pow(1 - S.CIWS.P, dt)) { tg.state = "dead"; tg.dieT = S.X_TIME; } }
   }
   function reap(missiles, dt) { for (let i = missiles.length - 1; i >= 0; i--) { const m = missiles[i]; if (m.state === "dead" && (m.dieT -= dt) <= 0) missiles.splice(i, 1); } } // real dt
-  const api = { deployDecoy, launchSam, setCiws, stepDefense, reap, defCheck, CFG, norm, diff, newShip, step, newRadar, newContact, pDetect, radarStep, setTag, stepContact, newEsm, pEsm, esmStep, startIdentify, cancelIdentify, identifyStep, identifyTime, fireCheck, startFire, cancelFire, fireStep, stepMissiles, hitShip, debugMissile, resetShip, STN };
+  const api = { toggleEcm, deployDecoy, launchSam, setCiws, stepDefense, reap, defCheck, CFG, norm, diff, newShip, step, newRadar, newContact, pDetect, radarStep, setTag, stepContact, newEsm, pEsm, esmStep, startIdentify, cancelIdentify, identifyStep, identifyTime, fireCheck, startFire, cancelFire, fireStep, stepMissiles, hitShip, debugMissile, resetShip, STN };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.Sim = api;
 })(typeof self !== "undefined" ? self : this);

@@ -198,6 +198,7 @@ tr.sel{background:#2a2f33}
           <div class="sec"><h5>INCOMING MISSILES</h5><div id="dmList"></div><div id="dmInfo" class="note" style="margin:0">No missile selected</div></div>
           <div class="sec"><h5>SAM</h5><div class="row"><button id="samB" style="flex:1">LAUNCH SAM</button></div><div class="note" id="samNote"></div></div>
           <div class="sec"><h5>CIWS</h5><div class="note" id="ciwsNote" style="margin:0 0 6px"></div><div class="row"><button id="ciwsB" style="flex:1">TARGET SELECTED</button><button id="ciwsA" style="flex:1">AUTO</button></div></div>
+          <div class="sec"><h5>ECM</h5><div class="row"><button id="ecmB" style="flex:1">ECM</button></div><div class="note" id="ecmNote"></div></div>
           <div class="sec"><h5>DECOYS</h5><div class="row"><button id="decB" style="flex:1">DEPLOY DECOY</button></div><div class="note" id="decNote"></div><div class="note" id="defMsg" style="color:#ffd83a"></div></div>
         </div>
       </div>
@@ -327,7 +328,7 @@ function draw(){
   for(const m of missiles){ const dx=m.x-ship.x, dy=m.y-ship.y, r=Math.hypot(dx,dy); if(r>range) continue;
     const b=Math.atan2(dx,dy)-rot*Math.PI/180, sx=cx+Math.sin(b)*r*px, sy=cy-Math.cos(b)*r*px, a=A(m.hdg), ux=Math.cos(a), uy=Math.sin(a);
     if(m.state==="dead"){ g.save(); g.translate(sx,sy); g.strokeStyle="#fff"; g.lineWidth=1.5; g.beginPath(); g.moveTo(-4,-4); g.lineTo(4,4); g.moveTo(4,-4); g.lineTo(-4,4); g.stroke(); g.restore(); continue; } // destroyed: small white X
-    const mc=m.state==="decoy"?"#777":m.side==="enemy"?(m.tid==="own"?"#ff3b3b":"#ff9a2e"):m.side==="ally"?"#3d8bff":"#00e5ff"; // enemy red (orange if aimed at an ally), decoyed grey, ally blue, own cyan
+    const mc=m.state?"#777":m.side==="enemy"?(m.tid==="own"?"#ff3b3b":"#ff9a2e"):m.side==="ally"?"#3d8bff":"#00e5ff"; // enemy red (orange if aimed at an ally), decoyed grey, ally blue, own cyan
     g.save(); g.translate(sx,sy); if(m.uid===msel){ g.strokeStyle="#fff"; g.lineWidth=1; g.strokeRect(-11,-11,22,22); } g.strokeStyle=mc; g.lineWidth=1.5; g.strokeStyle=mc; g.fillStyle=mc; g.lineWidth=1.5;
     const R=7, h=0.8660254; // hollow equilateral triangle, tip along heading
     g.beginPath(); g.moveTo(ux*R,uy*R); g.lineTo(R*(-0.5*ux-h*uy),R*(-0.5*uy+h*ux)); g.lineTo(R*(-0.5*ux+h*uy),R*(-0.5*uy-h*ux)); g.closePath(); g.stroke();
@@ -475,7 +476,7 @@ function defList(){
   const L=missiles.filter(m=>m.side==="enemy"), df=ship.def;
   if(msel!=null&&!L.some(m=>m.uid===msel)) msel=null;
   const t=L.map(m=>{ const d=Math.hypot(m.x-ship.x,m.y-ship.y), cls=m.state==="dead"?"dx":m.state?"gry":m.tid==="own"?"inc":"ally2";
-    const st=m.state==="dead"?"X DESTROYED":m.state==="decoy"?"DECOYED":df.ciwsOn===m.uid?"CIWS":df.ciws===m.uid?"CIWS SET":ship.sams.some(q=>q.uid===m.uid)?"SAM":"";
+    const st=m.state==="dead"?"X DESTROYED":m.state==="decoy"?"DECOYED":m.state==="jam"?"JAMMED":df.ciwsOn===m.uid?"CIWS":df.ciws===m.uid?"CIWS SET":ship.sams.some(q=>q.uid===m.uid)?"SAM":"";
     return `<div class="idr ${cls}${msel===m.uid?" sel":""}" data-u="${m.uid}"><span>${mlbl(m)}</span><span>${m.tid==="own"?"YOU":"ALLY"}</span><span>${d.toFixed(1)} NM</span><span class="s">${st}</span></div>`; }).join("")
     ||'<div class="note" style="padding:6px">No incoming missiles.</div>';
   if(t!==dh.m){ dh.m=t; $("dmList").innerHTML=t; }
@@ -487,6 +488,7 @@ function defPanel(){
   const cm=df.ciws!=null?missiles.find(k=>k.uid===df.ciws):null;
   $("ciwsNote").textContent="Mode: "+(cm?"MANUAL "+mlbl(cm):"AUTO (closest)")+" · range "+D.CIWS.RANGE+" NM · "+(df.ciwsOn!=null?"ENGAGING "+mlbl(missiles.find(k=>k.uid===df.ciwsOn)||{n:"?"}):"idle");
   $("ciwsB").disabled=dead||!live; $("ciwsA").disabled=dead||df.ciws==null; $("ciwsA").classList.toggle("on",df.ciws==null);
+  $("ecmB").disabled=dead; $("ecmB").classList.toggle("on",df.ecm); $("ecmB").textContent=D.ECM.NAME+(df.ecm?"  ON":"  OFF"); $("ecmNote").textContent="Jams incoming missiles within "+D.ECM.RANGE+" NM. Jammed missiles lose guidance and fly straight on.";
   $("decB").disabled=dead||df.decoy<=0||df.cd>0; $("decB").textContent=df.cd>0?"RELOADING "+Math.ceil(df.cd):"DEPLOY DECOY";
   $("decNote").textContent="Decoys "+df.decoy; $("defMsg").textContent=defMsg;
 }
@@ -494,6 +496,7 @@ $("dmList").addEventListener("pointerdown",e=>{ const r=e.target.closest(".idr")
 $("samB").onclick=()=>{ defMsg=Sim.launchSam(ship,missiles,msel); defList(); defPanel(); };
 $("ciwsB").onclick=()=>{ Sim.setCiws(ship,msel); defList(); defPanel(); };
 $("ciwsA").onclick=()=>{ Sim.setCiws(ship,null); defList(); defPanel(); };
+$("ecmB").onclick=()=>{ defMsg=Sim.toggleEcm(ship); defPanel(); };
 $("decB").onclick=()=>{ defMsg=Sim.deployDecoy(ship,missiles); defList(); defPanel(); };
 
 // ---- controls ----
