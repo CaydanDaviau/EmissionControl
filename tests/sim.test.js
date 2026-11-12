@@ -135,3 +135,16 @@ test("enemy AI: duty cycle, detects ship, ESM hears radar, patrols", () => {
   for (let i = 0; i < 300; i++) S.aiStep(c2, ship, false, 1);
   assert.ok(!c2.ai.hears); // our radar off: not heard
 });
+
+test("AI fires only with a good track, one per cooldown, ASM beyond SSM range, SSM inside", () => {
+  const ship = Sim.newShip(), ms = [], c = mk(0, 20, { side: "enemy" }); c.ai = Sim.newAi(1, null);
+  assert.equal(Sim.aiFireStep(c, ship, ms, 1), null, "no track, no fire");
+  c.ai.tracks = true; c.ai.q = 0.4; assert.equal(Sim.aiFireStep(c, ship, ms, 1), null, "track too weak");
+  c.ai.q = 0.8; const m1 = Sim.aiFireStep(c, ship, ms, 1);
+  assert.ok(m1 && m1.w === "ssm" && m1.tid === "own" && m1.side === "enemy", "SSM inside 70 nm");
+  assert.equal(Sim.aiFireStep(c, ship, ms, 1), null, "cooldown");
+  run(dt => Sim.aiFireStep(c, ship, ms, dt), 0); c.ai.cd = 0; c.y = 100;
+  const m2 = Sim.aiFireStep(c, ship, ms, 1); assert.ok(m2 && m2.w === "asm", "ASM beyond SSM range");
+  c.ai.cd = 0; c.y = 200; assert.equal(Sim.aiFireStep(c, ship, ms, 1), null, "out of ASM range");
+  assert.equal(ms.length, 2); assert.equal(c.ai.ammo.ssm, 7); assert.equal(c.ai.ammo.asm, 3);
+});
