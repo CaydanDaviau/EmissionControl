@@ -332,6 +332,7 @@ function draw(){
     if(!c.tracked) g.setLineDash([3,3]);
     if(c.cls==="ally"){ g.beginPath(); g.arc(0,0,5.5,0,Math.PI*2); g.stroke(); } else if(!c.sunk) g.strokeRect(-5,-5,10,10);
     g.setLineDash([]); g.globalAlpha=1;
+    if(c.identified&&!c.sunk){ const a=A(c.hdg); g.globalAlpha=al; g.strokeStyle=COL[c.cls]; g.lineWidth=1.6; g.beginPath(); g.moveTo(Math.cos(a)*5,Math.sin(a)*5); g.lineTo(Math.cos(a)*20,Math.sin(a)*20); g.stroke(); g.globalAlpha=1; } // identified: heading line like ours
     if(c.sunk){ g.strokeStyle="#ff4a4a"; g.lineWidth=2; g.beginPath(); g.moveTo(-8,-8); g.lineTo(8,8); g.moveTo(8,-8); g.lineTo(-8,8); g.stroke(); g.lineWidth=1.6; } // destroyed enemy: red X
     if(S.sel===c.id){ g.strokeStyle="#fff"; g.lineWidth=1; g.strokeRect(-9,-9,18,18); g.lineWidth=1.6; }
     if(S.labels&&!c.sunk){ g.globalAlpha=Math.max(al,0.3); g.fillStyle=COL[c.cls]; g.textAlign="left"; g.textBaseline="middle"; g.fillText(String(c.id).padStart(4,"0"),11,0); }
@@ -340,6 +341,7 @@ function draw(){
   { const dx=ally.x-ship.x, dy=ally.y-ship.y, r=Math.hypot(dx,dy); if(r<=range){ const b=Math.atan2(dx,dy)-rot*Math.PI/180, sx=cx+Math.sin(b)*r*px, sy=cy-Math.cos(b)*r*px; // ally A1: blue circle
     g.save(); const dd=ally.sunk; g.strokeStyle=dd?"#ff4a4a":COL.ally; g.fillStyle=g.strokeStyle; g.lineWidth=1.6; g.beginPath();
     if(ally.wreck){ g.moveTo(sx-7,sy-7); g.lineTo(sx+7,sy+7); g.moveTo(sx+7,sy-7); g.lineTo(sx-7,sy+7); } else g.arc(sx,sy,5.5,0,Math.PI*2); g.stroke(); // destroyed: red circle while drifting, red X as a wreck
+    if(!ally.sunk){ const a=A(ally.hdg); g.beginPath(); g.moveTo(sx+Math.cos(a)*5,sy+Math.sin(a)*5); g.lineTo(sx+Math.cos(a)*20,sy+Math.sin(a)*20); g.stroke(); } // ally heading line
     if(S.labels){ g.textAlign="left"; g.textBaseline="middle"; g.fillText(ally.wreck?"A1 WRECK":"A1",sx+11,sy); } g.restore(); } }
   // own missiles: small triangle pointing along heading + velocity vector
   for(const m of missiles){ const dx=m.x-ship.x, dy=m.y-ship.y, r=Math.hypot(dx,dy); if(r>range) continue;
@@ -579,10 +581,11 @@ $("dbgR").onclick=()=>{ Sim.resetShip(ship); radar.on=true; missiles.length=0; f
 let last=performance.now();
 function frame(t){
   const rdt=Math.min(0.1,(t-last)/1000); last=t; let sdt=rdt*TS[S.ts]; // rdt = real time (radar), sdt = scaled (ship motion)
-  if(!S.paused){ while(sdt>0){ const h=Math.min(0.5,sdt); Sim.step(ship,h); Sim.allyStep(ally,ship,h); for(const c of contacts) Sim.stepContact(c,h); Sim.stepMissiles(missiles,contacts,h,ship,ally); Sim.stepDefense(ship,missiles,h); for(const c of contacts) Sim.aiSamMove(c,missiles,h); sdt-=h; }
+  if(!S.paused){ while(sdt>0){ const h=Math.min(0.5,sdt); Sim.step(ship,h); Sim.allyStep(ally,ship,h); for(const c of contacts) Sim.stepContact(c,h); Sim.stepMissiles(missiles,contacts,h,ship,ally); Sim.stepDefense(ship,missiles,h); for(const c of contacts) Sim.aiSamMove(c,missiles,h); Sim.allySamMove(ally,missiles,h); sdt-=h; }
     if(ship.dead[1]){ radar.on=false; for(const c of contacts) c.esm=null; }
     if(emcon()){ ship.def.ecm=false; ship.link=false; } if(ship.dead[1]) ship.link=false;
-    for(const c of contacts){ Sim.aiStep(c,ship,radar.on,rdt,ally); Sim.aiFireStep(c,ship,missiles,rdt,ally); Sim.aiDefStep(c,missiles,rdt); } // sensors destroyed: radar dead, ESM deaf
+    for(const c of contacts){ Sim.aiStep(c,ship,radar.on,rdt,ally); Sim.aiFireStep(c,ship,missiles,rdt,ally); Sim.aiDefStep(c,missiles,rdt); }
+    Sim.allyDefStep(ally,missiles,rdt); // sensors destroyed: radar dead, ESM deaf
     Sim.radarStep(radar,ship,contacts,rdt); if(!ship.dead[1]) Sim.esmStep(esm,ship,contacts,rdt); if(ship.link&&!ship.dead[1]&&!ally.dead[1]) Sim.esmStep(esmA,ally,contacts,rdt,"esmA"); else for(const c of contacts) c.esmA=null; Sim.fixStep(fixes,ship,ally,contacts,esm,esmA,rdt); Sim.aiFixStep(contacts,rdt); Sim.identifyStep(contacts,rdt,radar.on,ship); Sim.fireStep(ship,all(),missiles,rdt); Sim.reap(missiles,rdt); Sim.ecmStep(ship,missiles,rdt); Sim.ciwsStep(ship,missiles,rdt); } // sensors run in real time
   blink=Math.floor(t/300)%2; S.lock=!ship.wreck&&missiles.some(m=>m.tid==="own"&&!m.state); // enemy missile aimed at us
   $("top").style.borderBottom=S.lock?"4px solid "+(blink?"#fff":"#ff3b3b"):"";

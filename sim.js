@@ -304,8 +304,8 @@
   function reap(missiles, dt) { for (let i = missiles.length - 1; i >= 0; i--) { const m = missiles[i]; if (m.state === "dead" && (m.dieT -= dt) <= 0) missiles.splice(i, 1); } } // real dt
   // ---- LINK, ally, ESM fixes ----
   function toggleLink(ship, emcon) { if (ship.dead[1]) return "Sensors destroyed."; if (emcon) { ship.link = false; return "EMCON active: LINK unavailable."; } ship.link = !ship.link; return "LINK " + (ship.link ? "ON." : "OFF."); } // LINK is an emission: off under EMCON
-  function newAlly(x, y) { return { id: "A1", x, y, hdg: 0, spd: 0, rng: { seed: 77 }, dead: [false, false, false, false], sunk: false, wreck: false }; }
-  function resetAlly(al, x, y) { al.x = x; al.y = y; al.hdg = 0; al.spd = 0; al.dead = [false, false, false, false]; al.sunk = false; al.wreck = false; }
+  function newAlly(x, y) { return { id: "A1", x, y, hdg: 0, spd: 0, rng: { seed: 77 }, dead: [false, false, false, false], sunk: false, wreck: false, ecm: false, def: { decoy: CFG.DEFENSE.DECOY.AMMO, sam: CFG.DEFENSE.SAM.AMMO, cd: 0, sams: [] } }; }
+  function resetAlly(al, x, y) { al.x = x; al.y = y; al.hdg = 0; al.spd = 0; al.dead = [false, false, false, false]; al.sunk = false; al.wreck = false; al.ecm = false; al.def = { decoy: CFG.DEFENSE.DECOY.AMMO, sam: CFG.DEFENSE.SAM.AMMO, cd: 0, sams: [] }; }
   function allyStep(al, ship, dt) { // SCALED dt: holds a slot CFG.ALLY.OFFSET nm abeam (starboard) of our ship; destroyed = drifts to a stop (same rule as ours), then wreck
     if (al.sunk) { al.spd = Math.max(0, al.spd - CFG.DAMAGE.DRIFT_DECEL * dt); if (al.spd === 0) al.wreck = true; if (al.wreck) return; const q0 = al.hdg * Math.PI / 180, k0 = al.spd * dt / 3600; al.x += Math.sin(q0) * k0; al.y += Math.cos(q0) * k0; return; }
     const r = (ship.hdg + 90) * Math.PI / 180, dx = ship.x + Math.sin(r) * CFG.ALLY.OFFSET - al.x, dy = ship.y + Math.cos(r) * CFG.ALLY.OFFSET - al.y, d = Math.hypot(dx, dy);
@@ -340,12 +340,14 @@
   function initEnemy(c, seed) { c.rng = { seed: seed | 0 }; c.dead = [false, false, false, false]; c.sunk = false; c.wreck = false; c.ecm = false;
     c.def = { decoy: CFG.DEFENSE.DECOY.AMMO, sam: CFG.DEFENSE.SAM.AMMO, cd: 0, sams: [] }; }
   function resetEnemy(c) { initEnemy(c, c.rng ? c.rng.seed : 1); if (c.ai) resetAi(c.ai); }
-  function aiDefStep(c, missiles, dt) { // REAL dt: reaction delay, decoy reload, ECM and CIWS rolls
+  function aiDefStep(c, missiles, dt) { defStep(c, missiles, dt, m => m.side === "own" && m.tid === c.id); }
+  function allyDefStep(al, missiles, dt) { defStep(al, missiles, dt, m => m.side === "enemy" && m.tid === al.id); } // ally defends itself with the same rules/numbers
+  function defStep(c, missiles, dt, mine) { // REAL dt: reaction delay, decoy reload, ECM and CIWS rolls; mine(m) = missile is aimed at this unit
     const df = c.def, A = CFG.AI, S = CFG.DEFENSE; if (!df) return;
     df.cd = Math.max(0, df.cd - dt); c.ecm = false;
     if (c.sunk || c.dead[3]) { df.sams.length = 0; return; }
     const th = []; // our missiles aimed at it, inside SAM range, after its 2-5 s reaction delay
-    for (const m of missiles) { if (m.side !== "own" || m.state || m.tid !== c.id) continue;
+    for (const m of missiles) { if (m.state || !mine(m)) continue;
       const d = Math.hypot(m.x - c.x, m.y - c.y); if (d > S.SAM.RANGE) continue;
       if (m.aiT === undefined) m.aiT = A.REACT_MIN + rand(c.rng) * (A.REACT_MAX - A.REACT_MIN);
       if (m.aiT > 0) { m.aiT -= dt; continue; }
@@ -359,6 +361,7 @@
     const cw = ssm.filter(k => !k.m.state && k.d <= S.CIWS.RANGE).sort((a, b) => a.d - b.d)[0];
     if (cw && rand(c.rng) < 1 - Math.pow(1 - S.CIWS.P, dt)) { cw.m.state = "dead"; cw.m.dieT = S.X_TIME; }
   }
+  function allySamMove(al, missiles, dt) { aiSamMove(al, missiles, dt); }
   function aiSamMove(c, missiles, dt) { // SCALED dt: enemy SAM flight and hit roll
     const df = c.def, S = CFG.DEFENSE; if (!df) return;
     if (c.sunk || c.dead[3]) { df.sams.length = 0; return; }
@@ -439,6 +442,6 @@
     if (!solid) { m.tx = fx.x; m.ty = fx.y; } // fired at a FIX: flies to that point, seeker acquires us if we are within range of it
     missiles.push(m); return m;
   }
-  const api = { toggleLink, newAlly, resetAlly, allyStep, rays, fixStep, aiFixStep, initEnemy, resetEnemy, aiDefStep, aiSamMove, resetAi, aiIdTime, aiFireStep, newAi, aiStep, ciwsStep, ecmStep, toggleEcm, deployDecoy, launchSam, setCiws, stepDefense, reap, defCheck, CFG, norm, diff, newShip, step, newRadar, newContact, pDetect, radarStep, setTag, stepContact, newEsm, pEsm, esmStep, startIdentify, cancelIdentify, identifyStep, identifyTime, fireCheck, startFire, cancelFire, fireStep, stepMissiles, hitShip, debugMissile, resetShip, STN };
+  const api = { toggleLink, newAlly, resetAlly, allyStep, rays, fixStep, aiFixStep, initEnemy, resetEnemy, aiDefStep, aiSamMove, allyDefStep, allySamMove, resetAi, aiIdTime, aiFireStep, newAi, aiStep, ciwsStep, ecmStep, toggleEcm, deployDecoy, launchSam, setCiws, stepDefense, reap, defCheck, CFG, norm, diff, newShip, step, newRadar, newContact, pDetect, radarStep, setTag, stepContact, newEsm, pEsm, esmStep, startIdentify, cancelIdentify, identifyStep, identifyTime, fireCheck, startFire, cancelFire, fireStep, stepMissiles, hitShip, debugMissile, resetShip, STN };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.Sim = api;
 })(typeof self !== "undefined" ? self : this);
