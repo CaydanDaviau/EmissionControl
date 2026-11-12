@@ -354,3 +354,16 @@ test("enemy tracks the ally with its radar and fires at it when engaged; not at 
   const m = Sim.aiFireStep(c, s, [], 0, al); assert.ok(m && m.tid === "A1" && m.side === "enemy", "fires at the ally");
   al.sunk = true; c.ai.cd = 0; run(dt => Sim.aiStep(c, s, true, dt, al), 5); assert.ok(!c.ai.tra); assert.equal(Sim.aiFireStep(c, s, [], 0, al), null);
 });
+
+// ---- ally defends itself ----
+test("ally SAMs an ASM aimed at it, decoys an SSM only inside range; destroyed DEFENSE disables it", () => {
+  const S = Sim.CFG.DEFENSE, P = S.SAM.P; S.SAM.P = 1;
+  const al = Sim.newAlly(0, 0), s = Sim.newShip();
+  const ms = [{ uid: 1, n: 1, side: "enemy", w: "asm", tid: "A1", x: 0, y: 20, hdg: 180, spd: 500, fuel: 100 }];
+  run(dt => { Sim.allyDefStep(al, ms, dt); Sim.allySamMove(al, ms, dt); }, 60, 0.1);
+  S.SAM.P = P; assert.equal(al.def.sam, S.SAM.AMMO - 1, "one SAM used"); assert.equal(ms[0].state, "dead");
+  const al2 = Sim.newAlly(0, 0), m2 = [{ uid: 2, n: 2, side: "enemy", w: "ssm", tid: "A1", x: 0, y: 3, hdg: 180, spd: 480, fuel: 100 }];
+  Sim.allyDefStep(al2, m2, 0.1); assert.equal(al2.def.decoy, S.DECOY.AMMO, "no decoy beyond 4 nm");
+  const al3 = Sim.newAlly(0, 0); al3.dead[3] = true; const m3 = [{ uid: 3, n: 3, side: "enemy", w: "asm", tid: "A1", x: 0, y: 20, hdg: 180, spd: 500, fuel: 100 }];
+  run(dt => Sim.allyDefStep(al3, m3, dt), 10, 0.1); assert.equal(al3.def.sam, S.SAM.AMMO, "dead DEFENSE: no SAM");
+});
