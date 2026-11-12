@@ -25,6 +25,7 @@
     // SAM: long range, highest kill chance, limited ammo; resolves after flight time. Dead missiles stay as a white X for X_TIME real seconds.
     DEFENSE: { ECM: { NAME: "AN/SLQ-32", RANGE: 20, P: 0.01 }, DECOY: { P: 0.2, AMMO: 4, CD: 20 }, CIWS: { RANGE: 1, P: 0.1 }, SAM: { RANGE: 25, P: 0.5, AMMO: 8, SPEED: 2000 }, X_TIME: 10, STRAY: 60 },
     WEAPON: { COUNTDOWN: 5, ARRIVE: 0.5 }, // launch countdown (s, real time); arrive radius (nm)
+    AI: { DUTY_PERIOD: 60, DUTY_ON: 20, SWEEP: 4, SHIP_RCS: 10000, SHIP_H: 60, H_ANT: 100, COAST: 0.02, TURN: 3, WP_NM: 1 }, // enemy radar on 20 s of every 60 s
     IDENTIFY: { TIME: 20, D_REF: 10, MIN: 5, MAX: 90 } // TIME = seconds at D_REF nm for a normal (RCS_REF) contact
   };
   const STN = ["NAVIGATION", "SENSORS", "WEAPONS", "DEFENSE"];
@@ -93,6 +94,13 @@
     }
   }
   function stepContact(c, dt) {
+    const a = c.ai;
+    if (a && a.wp) { // patrol: steer to the next waypoint (loop), same turn rate as ships
+      const w = a.wp[a.i], dx = w[0] - c.x, dy = w[1] - c.y;
+      if (Math.hypot(dx, dy) < CFG.AI.WP_NM) a.i = (a.i + 1) % a.wp.length;
+      const want = norm(Math.atan2(dx, dy) * 180 / Math.PI), dh = diff(want, c.hdg), mt = CFG.AI.TURN * dt;
+      c.hdg = norm(Math.abs(dh) <= mt ? want : c.hdg + Math.sign(dh) * mt);
+    }
     if (!c.spd) return;
     const r = c.hdg * Math.PI / 180, d = c.spd * dt / 3600;
     c.x += Math.sin(r) * d; c.y += Math.cos(r) * d;
@@ -260,6 +268,29 @@
     for (const m of missiles) if (live(m) && m.tid === "own" && mdist(ship, m) <= S.ECM.RANGE && rand(ship.rng) < 1 - Math.pow(1 - S.ECM.P, dt)) seduce(ship, m, "jam");
   }
   function reap(missiles, dt) { for (let i = missiles.length - 1; i >= 0; i--) { const m = missiles[i]; if (m.state === "dead" && (m.dieT -= dt) <= 0) missiles.splice(i, 1); } } // real dt
-  const api = { ciwsStep, ecmStep, toggleEcm, deployDecoy, launchSam, setCiws, stepDefense, reap, defCheck, CFG, norm, diff, newShip, step, newRadar, newContact, pDetect, radarStep, setTag, stepContact, newEsm, pEsm, esmStep, startIdentify, cancelIdentify, identifyStep, identifyTime, fireCheck, startFire, cancelFire, fireStep, stepMissiles, hitShip, debugMissile, resetShip, STN };
+  // ---- enemy AI (first stage): patrol, duty-cycled radar, ESM; same sensor rules as the player, no weapons yet. Real-time dt ----
+  function newAi(seed, wp) { return { seed: seed | 0, wp, i: 0, t: 0, sw: 0, es: 0, q: 0, tracks: false, hears: null, nHear: 0 }; }
+  function aiStep(c, ship, radarOn, dt) {
+    const a = c.ai, A = CFG.AI; if (!a) return;
+    a.t += dt; a.sw += dt; a.es += dt;
+    c.emitting = (a.t % A.DUTY_PERIOD) < A.DUTY_ON;
+    const dx = ship.x - c.x, dy = ship.y - c.y, d = Math.hypot(dx, dy);
+    if (c.emitting) { // radar: one roll per sweep period, same model as ours
+      while (a.sw >= A.SWEEP) { a.sw -= A.SWEEP;
+        const hor = 1.23 * (Math.sqrt(A.H_ANT) + Math.sqrt(A.SHIP_H)), rd = c.emit.range * Math.pow(A.SHIP_RCS / CFG.RADAR.RCS_REF, 0.25);
+        const p = d > hor ? 0 : 1 / (1 + Math.exp(-(rd - d) / (0.15 * rd)));
+        if (rand(a) < p) { a.q += (1 - a.q) * CFG.RADAR.Q_HIT; a.tracks = true; a.dist = d; a.brg = norm(Math.atan2(dx, dy) * 180 / Math.PI); }
+        else if (a.tracks) { a.q -= CFG.RADAR.Q_MISS; }
+      }
+    } else { a.sw = 0; if (a.tracks) a.q -= A.COAST * dt; } // silent: track coasts and decays
+    if (a.tracks && a.q < CFG.RADAR.Q_DROP) { a.tracks = false; a.q = 0; }
+    while (a.es >= CFG.ESM.INTERVAL) { a.es -= CFG.ESM.INTERVAL; // ESM: hears our radar, bearing only
+      if (radarOn && !ship.dead[1] && rand(a) < pEsm(d, { emit: { range: CFG.RADAR.RANGE }, emitting: true, h: A.SHIP_H })) {
+        if (!a.hears) a.nHear++; a.hears = { brg: norm(Math.atan2(dx, dy) * 180 / Math.PI + gauss(a) * CFG.ESM.SIGMA), t: a.t };
+      }
+    }
+    if (a.hears && a.t - a.hears.t > CFG.ESM.HOLD) a.hears = null;
+  }
+  const api = { newAi, aiStep, ciwsStep, ecmStep, toggleEcm, deployDecoy, launchSam, setCiws, stepDefense, reap, defCheck, CFG, norm, diff, newShip, step, newRadar, newContact, pDetect, radarStep, setTag, stepContact, newEsm, pEsm, esmStep, startIdentify, cancelIdentify, identifyStep, identifyTime, fireCheck, startFire, cancelFire, fireStep, stepMissiles, hitShip, debugMissile, resetShip, STN };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.Sim = api;
 })(typeof self !== "undefined" ? self : this);

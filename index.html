@@ -205,7 +205,7 @@ tr.sel{background:#2a2f33}
     </div>
   </div>
 </div>
-<div class="ov show" id="menu"><h1>EMCON</h1><button id="startB">START</button><button id="setB">&#9881; SETTINGS</button><button id="dbgS" class="dbg">DEBUG: SSM AT ME</button><button id="dbgA" class="dbg">DEBUG: ASM AT ME</button><button id="dbgH" class="dbg">DEBUG: SSM AT ALLY</button><button id="dbgR" class="dbg">DEBUG: REPAIR / RESET</button></div>
+<div class="ov show" id="menu"><h1>EMCON</h1><button id="startB">START</button><button id="setB">&#9881; SETTINGS</button><button id="dbgS" class="dbg">DEBUG: SSM AT ME</button><button id="dbgA" class="dbg">DEBUG: ASM AT ME</button><button id="dbgR" class="dbg">DEBUG: REPAIR / RESET</button></div>
 
 <div class="ov" id="settings"><h1>SETTINGS</h1><div class="row"><span class="lbl">Radar sweep</span><button id="sweepB" style="width:100px">On</button></div><button id="backB">BACK</button></div>
 <script src="sim.js"></script>
@@ -232,10 +232,9 @@ const RANGES=[5,10,20,40,70,100,150,200,300];
 const TS=[1,5,20];
 const ship=Sim.newShip();
 const LAT0=41+11.295/60, LON0=21+26.496/60;
-const contacts=[ [1,143,28.7],[2,255,32.1],[3,260,0.9],[4,243,154],[5,197,65.8],
-  [6,199,216],[7,351,214],[8,17,32,{rcs:800,h:400,side:"enemy"}],[9,88,44.0],[10,312,8.2,{side:"enemy"}],[11,120,15,{side:"ally"}],
-  [12,40,45,{side:"enemy",course:230,speed:15,emit:{name:"Type 346B",range:35}}] // moving emitter: heard by ESM before radar sees it
-].map(([id,b,r,o])=>Sim.newContact(id,b,r,o));
+const EDGE=0.97*1.23*(Math.sqrt(Sim.CFG.RADAR.H_ANT)+Math.sqrt(60)); // our radar detection edge (horizon-limited) for a default contact
+const contacts=[ (()=>{ const c=Sim.newContact(1,0,EDGE,{side:"enemy",speed:15,emit:{name:"Type 346B",range:35}}), R=EDGE; // straight north, on the detection edge
+  c.ai=Sim.newAi(20261114,[[10,R+2],[10,R+14],[-10,R+14],[-10,R+2]]); c.hdg=90; return c; })() ];
 const missiles=[]; // own missiles in flight
 const radar=Sim.newRadar(20261111), esm=Sim.newEsm(20261112);
 let sweepOn=true; try{ sweepOn=localStorage.getItem("emcon.sweep")!=="0"; }catch(e){}
@@ -554,7 +553,7 @@ function applyDmg(){ $("sensPage").classList.toggle("dead",ship.dead[1]); $("wpn
 function dbgFire(w,ally){ Sim.debugMissile(ship,missiles,w);
   if(ally){ const m=missiles[missiles.length-1], a=contacts.find(k=>k.id===11); m.tid=11; m.hdg=Sim.norm(Math.atan2(a.x-m.x,a.y-m.y)*180/Math.PI); m.lbl="A"+m.n; } // aimed at ally 0011
   $("startB").textContent="RESUME"; showMenu(false); }
-$("dbgS").onclick=()=>dbgFire("ssm"); $("dbgH").onclick=()=>dbgFire("ssm",true); $("dbgA").onclick=()=>dbgFire("asm");
+$("dbgS").onclick=()=>dbgFire("ssm"); $("dbgA").onclick=()=>dbgFire("asm");
 $("dbgR").onclick=()=>{ Sim.resetShip(ship); radar.on=true; missiles.length=0; msel=null; defMsg=""; bannerT=0; applyDmg(); sensUi(); };
 
 // ---- loop ----
@@ -562,7 +561,8 @@ let last=performance.now();
 function frame(t){
   const rdt=Math.min(0.1,(t-last)/1000); last=t; let sdt=rdt*TS[S.ts]; // rdt = real time (radar), sdt = scaled (ship motion)
   if(!S.paused){ while(sdt>0){ const h=Math.min(0.5,sdt); Sim.step(ship,h); for(const c of contacts) Sim.stepContact(c,h); Sim.stepMissiles(missiles,contacts,h,ship); Sim.stepDefense(ship,missiles,h); sdt-=h; }
-    if(ship.dead[1]){ radar.on=false; for(const c of contacts) c.esm=null; } // sensors destroyed: radar dead, ESM deaf
+    if(ship.dead[1]){ radar.on=false; for(const c of contacts) c.esm=null; }
+    for(const c of contacts) Sim.aiStep(c,ship,radar.on,rdt); // sensors destroyed: radar dead, ESM deaf
     Sim.radarStep(radar,ship,contacts,rdt); if(!ship.dead[1]) Sim.esmStep(esm,ship,contacts,rdt); Sim.identifyStep(contacts,rdt,radar.on,ship); Sim.fireStep(ship,contacts,missiles,rdt); Sim.reap(missiles,rdt); Sim.ecmStep(ship,missiles,rdt); Sim.ciwsStep(ship,missiles,rdt); } // sensors run in real time
   blink=Math.floor(t/300)%2; S.lock=!ship.wreck&&missiles.some(m=>m.tid==="own"&&!m.state); // enemy missile aimed at us
   $("top").style.borderBottom=S.lock?"4px solid "+(blink?"#fff":"#ff3b3b"):"";
@@ -570,7 +570,9 @@ function frame(t){
   if(bannerT>0) bannerT-=rdt; $("banner").style.display=bannerT>0?"block":"none";
   hud(); draw(); if(stIdx===1) identPanel(); if(stIdx===2) wpnPanel(); if(stIdx===3) defPanel(); requestAnimationFrame(frame);
 }
-setInterval(()=>{fillTable();sensUi();wpnList();defList();applyDmg();},500);
+$("sensPage").insertAdjacentHTML("beforeend",'<div class="note" id="aiDbg" style="border-top:1px dashed #555;margin-top:8px;padding-top:6px"></div>');
+function aiDbg(){ const c=contacts[0], a=c.ai; $("aiDbg").innerHTML="DEBUG ENEMY<br>Radar: "+(c.emitting?"ON":"off")+" ("+Math.round(a.t%60)+"/60 s)<br>Tracks you: "+(a.tracks?Math.round(a.q*100)+"%":"no")+"<br>Hears your radar: "+(a.hears?"yes, BRG "+pad3(a.hears.brg):"no")+"<br>Range: "+Math.hypot(c.x-ship.x,c.y-ship.y).toFixed(1)+" nm"; }
+setInterval(()=>{aiDbg();fillTable();sensUi();wpnList();defList();applyDmg();},500);
 resize(); ui(); sensUi(); identPanel(); wpnList(); wpnPanel(); defList(); defPanel(); requestAnimationFrame(frame);
 </script>
 </body>
