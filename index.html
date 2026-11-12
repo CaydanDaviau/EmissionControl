@@ -307,9 +307,10 @@ function draw(){
   // own missiles: small triangle pointing along heading + velocity vector
   for(const m of missiles){ const dx=m.x-ship.x, dy=m.y-ship.y, r=Math.hypot(dx,dy); if(r>range) continue;
     const b=Math.atan2(dx,dy)-rot*Math.PI/180, sx=cx+Math.sin(b)*r*px, sy=cy-Math.cos(b)*r*px, a=A(m.hdg), ux=Math.cos(a), uy=Math.sin(a);
-    g.save(); g.translate(sx,sy); g.strokeStyle="#fff"; g.fillStyle="#fff"; g.lineWidth=1.2;
-    g.beginPath(); g.moveTo(ux*8,uy*8); g.lineTo(-ux*5-uy*5,-uy*5+ux*5); g.lineTo(-ux*5+uy*5,-uy*5-ux*5); g.closePath(); g.fill();
-    g.beginPath(); g.moveTo(ux*8,uy*8); g.lineTo(ux*24,uy*24); g.stroke();
+    const mc=m.side==="enemy"?"#ff3b3b":m.side==="ally"?"#3d8bff":"#00e5ff"; // enemy red, ally blue, own cyan
+    g.save(); g.translate(sx,sy); g.strokeStyle=mc; g.fillStyle=mc; g.lineWidth=1.5;
+    const R=7, h=0.8660254; // hollow equilateral triangle, tip along heading
+    g.beginPath(); g.moveTo(ux*R,uy*R); g.lineTo(R*(-0.5*ux-h*uy),R*(-0.5*uy+h*ux)); g.lineTo(R*(-0.5*ux+h*uy),R*(-0.5*uy-h*ux)); g.closePath(); g.stroke();
     if(S.labels){ g.font="11px monospace"; g.textAlign="left"; g.textBaseline="middle"; g.fillText("M"+m.n,10,-10); }
     g.restore(); }
   // own ship: white square + short heading line
