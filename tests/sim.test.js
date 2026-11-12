@@ -123,3 +123,15 @@ test("debug missile flies 20 nm to own ship and resolves a hit; weapons station 
   s.dead[2] = true; assert.equal(Sim.fireCheck(s, 0, { tracked: true, px: 0, py: 5 }), "Weapons station destroyed.");
   Sim.resetShip(s); assert.ok(s.dead.every(d => !d) && !s.sunk);
 });
+
+test("enemy AI: duty cycle, detects ship, ESM hears radar, patrols", () => {
+  const S = require("../sim.js"); const ship = S.newShip();
+  const c = S.newContact(1, 0, 21, { side: "enemy", speed: 15, emit: { name: "T", range: 35 } });
+  c.ai = S.newAi(7, [[10, 23], [10, 35], [-10, 35], [-10, 23]]); c.hdg = 90;
+  let on = 0, tot = 0, tracked = false, heard = false;
+  for (let i = 0; i < 600; i++) { S.aiStep(c, ship, true, 1); S.stepContact(c, 1); tot++; if (c.emitting) on++; tracked = tracked || c.ai.tracks; heard = heard || !!c.ai.hears; }
+  assert.ok(Math.abs(on / tot - 1 / 3) < 0.02); assert.ok(tracked); assert.ok(heard);
+  const c2 = S.newContact(2, 0, 21, { emit: { name: "T", range: 35 } }); c2.ai = S.newAi(7, [[0, 21]]);
+  for (let i = 0; i < 300; i++) S.aiStep(c2, ship, false, 1);
+  assert.ok(!c2.ai.hears); // our radar off: not heard
+});
