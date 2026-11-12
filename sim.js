@@ -13,7 +13,7 @@
     RADAR: { HORIZON: 32, RANGE: 70, H_ANT: 100, PERIOD: 4, RCS_REF: 10000, Q_HIT: 0.35, Q_MISS: 0.08, Q_DROP: 0.10 },
     // ESM (passive): hears emitting radars, bearing only. Own-ship data, per-ship later.
     // Detect range = RANGE_FACTOR * emitter radar range. No horizon cap for now (user's choice; H_ANT and DUCT are unused).
-    ESM: { H_ANT: 100, RANGE_FACTOR: 2, DUCT: 1.3, INTERVAL: 2, SIGMA: 5, HOLD: 15 },
+    ESM: { H_ANT: 100, RANGE_FACTOR: 2, DUCT: 1.3, INTERVAL: 2, SIGMA: 10, HOLD: 15 },
     // Identify: needs a continuous radar track (real time, like all sensors). Takes longer at long range and for low-RCS (stealthy) contacts. Track lost = reset to 0.
     // Weapons (game data; per-ship loadouts later). range nm, speed kt, turn deg/s
     WEAPONS: { ssm: { name: "SSM", model: "RGM-84", range: 70, speed: 480, turn: 10, dmg: "SSM" },

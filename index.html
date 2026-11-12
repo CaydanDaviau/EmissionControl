@@ -313,6 +313,11 @@ function draw(){
     g.strokeStyle="#b388ff"; g.lineWidth=1.2; g.setLineDash([7,5]); g.beginPath(); g.moveTo(cx,cy); g.lineTo(cx+Math.cos(a)*R,cy+Math.sin(a)*R); g.stroke(); g.setLineDash([]);
     if(S.labels){ g.fillStyle="#b388ff"; g.textAlign="left"; g.textBaseline="middle"; g.fillText("E"+c.esmNo+" "+c.emit.name,cx+Math.cos(a)*R*0.62+6,cy+Math.sin(a)*R*0.62); }
     g.restore(); }
+  // ally ESM lines (white), only while LINK is on and the line crosses ours
+  if(ship.link) for(const c of contacts){ if(!c.esm||!c.esmA) continue;
+    if(!Sim.rays(ship.x,ship.y,c.esm.brg,ally.x,ally.y,c.esmA.brg)) continue;
+    const dx=ally.x-ship.x, dy=ally.y-ship.y, b=Math.atan2(dx,dy)-rot*Math.PI/180, ax=cx+Math.sin(b)*Math.hypot(dx,dy)*px, ay=cy-Math.cos(b)*Math.hypot(dx,dy)*px, a=A(c.esmA.brg), f=Math.max(0.35,1-0.65*(esmA.t-c.esmA.t)/Sim.CFG.ESM.HOLD);
+    g.save(); g.globalAlpha=f; g.strokeStyle="#fff"; g.lineWidth=1.2; g.setLineDash([7,5]); g.beginPath(); g.moveTo(ax,ay); g.lineTo(ax+Math.cos(a)*R*2,ay+Math.sin(a)*R*2); g.stroke(); g.restore(); }
   // contacts (only what the radar has seen)
   g.lineWidth=1.6;
   for(const c of all()){
