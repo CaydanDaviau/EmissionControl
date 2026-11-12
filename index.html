@@ -338,7 +338,9 @@ function draw(){
     g.restore();
   }
   { const dx=ally.x-ship.x, dy=ally.y-ship.y, r=Math.hypot(dx,dy); if(r<=range){ const b=Math.atan2(dx,dy)-rot*Math.PI/180, sx=cx+Math.sin(b)*r*px, sy=cy-Math.cos(b)*r*px; // ally A1: blue circle
-    g.save(); g.strokeStyle=COL.ally; g.fillStyle=COL.ally; g.lineWidth=1.6; g.beginPath(); g.arc(sx,sy,5.5,0,Math.PI*2); g.stroke(); if(S.labels){ g.textAlign="left"; g.textBaseline="middle"; g.fillText("A1",sx+11,sy); } g.restore(); } }
+    g.save(); const dd=ally.sunk; g.strokeStyle=dd?"#ff4a4a":COL.ally; g.fillStyle=g.strokeStyle; g.lineWidth=1.6; g.beginPath();
+    if(ally.wreck){ g.moveTo(sx-7,sy-7); g.lineTo(sx+7,sy+7); g.moveTo(sx+7,sy-7); g.lineTo(sx-7,sy+7); } else g.arc(sx,sy,5.5,0,Math.PI*2); g.stroke(); // destroyed: red circle while drifting, red X as a wreck
+    if(S.labels){ g.textAlign="left"; g.textBaseline="middle"; g.fillText(ally.wreck?"A1 WRECK":"A1",sx+11,sy); } g.restore(); } }
   // own missiles: small triangle pointing along heading + velocity vector
   for(const m of missiles){ const dx=m.x-ship.x, dy=m.y-ship.y, r=Math.hypot(dx,dy); if(r>range) continue;
     const b=Math.atan2(dx,dy)-rot*Math.PI/180, sx=cx+Math.sin(b)*r*px, sy=cy-Math.cos(b)*r*px, a=A(m.hdg), ux=Math.cos(a), uy=Math.sin(a);
@@ -571,17 +573,17 @@ sweepUi();
 // ---- damage: destroyed stations show DESTROYED; debug buttons live in the menu ----
 function applyDmg(){ $("sensPage").classList.toggle("dead",ship.dead[1]); $("wpnPage").classList.toggle("dead",ship.dead[2]);
   $("defPage").classList.toggle("dead",ship.dead[3]); $("navPage").classList.toggle("navdead",ship.dead[0]); }
-$("dbgR").onclick=()=>{ Sim.resetShip(ship); radar.on=true; missiles.length=0; fixes.length=0; linkMsg=""; for(const c of contacts) if(c.ai) Sim.resetEnemy(c); msel=null; defMsg=""; bannerT=0; applyDmg(); sensUi(); };
+$("dbgR").onclick=()=>{ Sim.resetShip(ship); radar.on=true; missiles.length=0; fixes.length=0; Sim.resetAlly(ally,15,0); linkMsg=""; for(const c of contacts) if(c.ai) Sim.resetEnemy(c); msel=null; defMsg=""; bannerT=0; applyDmg(); sensUi(); };
 
 // ---- loop ----
 let last=performance.now();
 function frame(t){
   const rdt=Math.min(0.1,(t-last)/1000); last=t; let sdt=rdt*TS[S.ts]; // rdt = real time (radar), sdt = scaled (ship motion)
-  if(!S.paused){ while(sdt>0){ const h=Math.min(0.5,sdt); Sim.step(ship,h); Sim.allyStep(ally,ship,h); for(const c of contacts) Sim.stepContact(c,h); Sim.stepMissiles(missiles,contacts,h,ship); Sim.stepDefense(ship,missiles,h); for(const c of contacts) Sim.aiSamMove(c,missiles,h); sdt-=h; }
+  if(!S.paused){ while(sdt>0){ const h=Math.min(0.5,sdt); Sim.step(ship,h); Sim.allyStep(ally,ship,h); for(const c of contacts) Sim.stepContact(c,h); Sim.stepMissiles(missiles,contacts,h,ship,ally); Sim.stepDefense(ship,missiles,h); for(const c of contacts) Sim.aiSamMove(c,missiles,h); sdt-=h; }
     if(ship.dead[1]){ radar.on=false; for(const c of contacts) c.esm=null; }
     if(emcon()){ ship.def.ecm=false; ship.link=false; } if(ship.dead[1]) ship.link=false;
-    for(const c of contacts){ Sim.aiStep(c,ship,radar.on,rdt); Sim.aiFireStep(c,ship,missiles,rdt); Sim.aiDefStep(c,missiles,rdt); } // sensors destroyed: radar dead, ESM deaf
-    Sim.radarStep(radar,ship,contacts,rdt); if(!ship.dead[1]) Sim.esmStep(esm,ship,contacts,rdt); if(ship.link&&!ship.dead[1]) Sim.esmStep(esmA,ally,contacts,rdt,"esmA"); else for(const c of contacts) c.esmA=null; Sim.fixStep(fixes,ship,ally,contacts,esm,esmA,rdt); Sim.aiFixStep(contacts,rdt); Sim.identifyStep(contacts,rdt,radar.on,ship); Sim.fireStep(ship,all(),missiles,rdt); Sim.reap(missiles,rdt); Sim.ecmStep(ship,missiles,rdt); Sim.ciwsStep(ship,missiles,rdt); } // sensors run in real time
+    for(const c of contacts){ Sim.aiStep(c,ship,radar.on,rdt,ally); Sim.aiFireStep(c,ship,missiles,rdt,ally); Sim.aiDefStep(c,missiles,rdt); } // sensors destroyed: radar dead, ESM deaf
+    Sim.radarStep(radar,ship,contacts,rdt); if(!ship.dead[1]) Sim.esmStep(esm,ship,contacts,rdt); if(ship.link&&!ship.dead[1]&&!ally.dead[1]) Sim.esmStep(esmA,ally,contacts,rdt,"esmA"); else for(const c of contacts) c.esmA=null; Sim.fixStep(fixes,ship,ally,contacts,esm,esmA,rdt); Sim.aiFixStep(contacts,rdt); Sim.identifyStep(contacts,rdt,radar.on,ship); Sim.fireStep(ship,all(),missiles,rdt); Sim.reap(missiles,rdt); Sim.ecmStep(ship,missiles,rdt); Sim.ciwsStep(ship,missiles,rdt); } // sensors run in real time
   blink=Math.floor(t/300)%2; S.lock=!ship.wreck&&missiles.some(m=>m.tid==="own"&&!m.state); // enemy missile aimed at us
   $("top").style.borderBottom=S.lock?"4px solid "+(blink?"#fff":"#ff3b3b"):"";
   if(ship.hitSeq!==seenHit){ seenHit=ship.hitSeq; $("banner").style.color="#ff4a4a"; $("banner").textContent=ship.hitMsg; bannerT=8; applyDmg(); }

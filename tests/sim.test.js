@@ -334,3 +334,23 @@ test("destroyed contact is dropped from tracking by the radar", () => {
   const r = Sim.newRadar(1); run(dt => Sim.radarStep(r, s, [c], dt), 10);
   assert.equal(c.tracked, false); assert.equal(c.q, 0);
 });
+
+// ---- ally is hittable ----
+test("enemy missile at the ally hits it with the same station rules; sunk ally drifts to a wreck", () => {
+  const P = Sim.CFG.DAMAGE.P_HIT; Sim.CFG.DAMAGE.P_HIT = 1;
+  const s = Sim.newShip(), al = Sim.newAlly(15, 0), ms = [{ uid: 1, n: 1, lbl: "H1", side: "enemy", w: "asm", tid: "A1", x: 15, y: 0.1, hdg: 0, spd: 500, fuel: 50 }];
+  Sim.stepMissiles(ms, [], 0.1, s, al); Sim.CFG.DAMAGE.P_HIT = P;
+  assert.equal(ms.length, 0); assert.ok(al.dead.some(Boolean), "a station lost"); assert.ok(/H1 > A1 HIT/.test(s.hitMsg));
+  Sim.CFG.DAMAGE.P_HIT = 1; const ms2 = [{ uid: 2, n: 2, side: "enemy", w: "asm", tid: "A1", x: 15, y: 0.1, hdg: 0, spd: 500, fuel: 50 }];
+  for (let i = 0; i < 6 && !al.sunk; i++) { ms2.push({ uid: 3 + i, n: 3, side: "enemy", w: "asm", tid: "A1", x: 15, y: 0.1, hdg: 0, spd: 500, fuel: 50 }); Sim.stepMissiles(ms2, [], 0.1, s, al); }
+  Sim.CFG.DAMAGE.P_HIT = P; assert.ok(al.sunk, "ally destroyed");
+  al.spd = 15; run(dt => Sim.allyStep(al, s, dt), 30); assert.ok(al.wreck && al.spd === 0);
+  const x = al.x; run(dt => Sim.allyStep(al, s, dt), 10); assert.equal(al.x, x, "wreck does not follow");
+});
+test("enemy tracks the ally with its radar and fires at it when engaged; not at a destroyed ally", () => {
+  const s = Sim.newShip(), al = Sim.newAlly(0, 30), c = mkEn(60); c.x = 0; c.y = 0; s.x = 0; s.y = -90; // we are far out of reach, the ally is 30 nm away
+  c.ai.state = "engage"; c.ai.known = "host"; c.ai.t = 0;
+  run(dt => { Sim.aiStep(c, s, true, dt, al); }, 30); assert.ok(c.ai.tra && c.ai.qa > Sim.CFG.AI.FIRE_Q, "solid track on the ally");
+  const m = Sim.aiFireStep(c, s, [], 0, al); assert.ok(m && m.tid === "A1" && m.side === "enemy", "fires at the ally");
+  al.sunk = true; c.ai.cd = 0; run(dt => Sim.aiStep(c, s, true, dt, al), 5); assert.ok(!c.ai.tra); assert.equal(Sim.aiFireStep(c, s, [], 0, al), null);
+});
