@@ -211,3 +211,40 @@ test("AI radar: always 20/60 duty, except ON while identifying a held track; bac
   Sim.aiStep(e, Sim.newShip(), true, 0.1); assert.equal(e.emitting, false, "engage: duty cycle applies");
   e.ai.t = 10; Sim.aiStep(e, Sim.newShip(), true, 0.1); assert.equal(e.emitting, true, "engage: on in the duty window");
 });
+
+// ---- enemy damage, defenses, retaliation ----
+const mkEn = (range, o) => { const c = mkAi(range, 70); Sim.initEnemy(c, 11); return c; };
+const own = (c, w, x, y, o) => Object.assign({ uid: 900 + Math.floor(Math.abs(x * 7 + y)), n: 1, side: "own", w, tid: c.id, x, y, hdg: 0, spd: 480, fuel: 100 }, o);
+test("SAM ammo doubled (16) for player and enemy", () => {
+  assert.equal(Sim.newShip().def.sam, 16); assert.equal(mkEn(50).def.sam, 16);
+});
+test("our missile at the last known position hits the enemy (stations lost) or misses if it is not there", () => {
+  const s = Sim.newShip(), c = mkEn(30); c.px = c.x; c.py = c.y; Sim.CFG.DAMAGE.P_HIT = 1; // always hit when it connects
+  const m = own(c, "asm", c.x, c.y - 0.2), ms = [m]; Sim.stepMissiles(ms, [c], 0.1, s);
+  assert.equal(ms.length, 0); assert.ok(/HIT/.test(s.strikeMsg) && c.dead.some(Boolean), s.strikeMsg);
+  const c2 = mkEn(30); c2.px = c2.x + 20; c2.py = c2.y; const ms2 = [own(c2, "ssm", c2.px, c2.py - 0.1)]; Sim.stepMissiles(ms2, [c2], 0.1, s);
+  assert.ok(/MISSED/.test(s.strikeMsg) && !c2.dead.some(Boolean), "target 20 nm from the aim point: miss"); Sim.CFG.DAMAGE.P_HIT = 0.9;
+});
+test("enemy stations: sensors dead = radar/ESM off; weapons dead = no fire; destroyed = drifts to a wreck", () => {
+  const ship = Sim.newShip(), c = mkEn(20), ms = []; c.ai.state = "engage"; c.ai.tracks = true; c.ai.q = 0.9;
+  c.dead[2] = true; assert.equal(Sim.aiFireStep(c, ship, ms, 1), null); c.dead[2] = false;
+  c.dead[1] = true; run(dt => Sim.aiStep(c, ship, true, dt), 10); assert.equal(c.emitting, false); assert.equal(c.ai.tracks, false);
+  c.dead = [true, true, true, true]; c.sunk = true; c.spd = 15; run(dt => Sim.stepContact(c, dt), 20); assert.equal(c.spd, 0); assert.ok(c.wreck);
+  assert.equal(Sim.fireCheck(Sim.newShip(), 0, Object.assign(c, { tracked: true })), "Target destroyed.");
+});
+test("launching at an unknown enemy makes it hostile and engage", () => {
+  const { s, c } = tracked(0, 10, { side: "enemy", speed: 0 }); c.ai = Sim.newAi(3, null); Sim.initEnemy(c, 5); assert.equal(c.ai.state, "patrol");
+  Sim.startFire(s, 0, c); run(dt => Sim.fireStep(s, [c], [], dt), 6);
+  assert.equal(c.ai.known, "host"); assert.equal(c.ai.state, "engage");
+});
+test("enemy defenses: SAM at ASM after the reaction delay; decoy/ECM/CIWS only on SSM; ASM ignores soft-kill", () => {
+  const c = mkEn(0), cfg = Sim.CFG;
+  const asm = own(c, "asm", 0, 10, { uid: 1 }), ms = [asm]; run(dt => Sim.aiDefStep(c, ms, dt), 1); assert.equal(c.def.sam, 16, "still reacting");
+  run(dt => Sim.aiDefStep(c, ms, dt), 6); assert.equal(c.def.sam, 15); assert.equal(c.def.sams.length, 1); assert.equal(c.def.decoy, 4, "no decoy vs ASM");
+  const c2 = mkEn(0), ssm = own(c2, "ssm", 0, 10, { uid: 2 }), m2 = [ssm]; c2.def.sam = cfg.AI.SAM_RESERVE; // at the reserve: no SAM for an SSM
+  run(dt => Sim.aiDefStep(c2, m2, dt), 7); assert.equal(c2.def.sam, cfg.AI.SAM_RESERVE); assert.equal(c2.def.decoy, 3, "decoy deployed vs SSM"); assert.equal(c2.ecm, true);
+  const c3 = mkEn(0), a3 = own(c3, "asm", 0, 0.5, { uid: 3, aiT: 0 }); c3.def.sam = 0; run(dt => Sim.aiDefStep(c3, [a3], dt), 200); assert.ok(!a3.state, "ASM: no decoy/ECM/CIWS effect");
+  const c4 = mkEn(0), s4 = own(c4, "ssm", 0, 0.5, { uid: 4, aiT: 0 }); c4.def.sam = 0; c4.def.decoy = 0; run(dt => Sim.aiDefStep(c4, [s4], dt), 200); assert.ok(s4.state, "SSM at 0.5 nm: CIWS/ECM get it");
+  // SAM flight resolves the kill
+  Sim.CFG.DEFENSE.SAM.P = 1; run(dt => Sim.aiSamMove(c, ms, dt), 30); assert.equal(asm.state, "dead"); Sim.CFG.DEFENSE.SAM.P = 0.5;
+});
