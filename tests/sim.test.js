@@ -247,7 +247,7 @@ test("enemy defenses: SAM at ASM after the reaction delay; decoy/ECM/CIWS only o
   const c3 = mkEn(0), a3 = own(c3, "asm", 0, 0.5, { uid: 3, aiT: 0 }); c3.def.sam = 0; run(dt => Sim.aiDefStep(c3, [a3], dt), 200); assert.ok(!a3.state, "ASM: no decoy/ECM/CIWS effect");
   const c4 = mkEn(0), s4 = own(c4, "ssm", 0, 0.5, { uid: 4, aiT: 0 }); c4.def.sam = 0; c4.def.decoy = 0; run(dt => Sim.aiDefStep(c4, [s4], dt), 200); assert.ok(s4.state, "SSM at 0.5 nm: CIWS/ECM get it");
   // SAM flight resolves the kill
-  Sim.CFG.DEFENSE.SAM.P = 1; run(dt => Sim.aiSamMove(c, ms, dt), 30); assert.equal(asm.state, "dead"); Sim.CFG.DEFENSE.SAM.P = 0.35;
+  Sim.CFG.DEFENSE.SAM.P = 1; run(dt => Sim.aiSamMove(c, ms, dt), 30); assert.equal(asm.state, "dead"); Sim.CFG.DEFENSE.SAM.P = 0.5;
 });
 
 test("horizon cap: radar and ESM detect nothing beyond it (radar 32 nm, ESM x1.3); both work inside", () => {
@@ -279,7 +279,7 @@ test("AI ESM investigation: hears us without a track -> heads along the bearing;
 });
 
 // ---- LINK, ally, ESM fixes ----
-test("SAM intercept 35%, ECM jamming 3%/s", () => { assert.equal(Sim.CFG.DEFENSE.SAM.P, 0.35); assert.equal(Sim.CFG.DEFENSE.ECM.P, 0.03); });
+test("SAM 50% with 20 s reload, ECM 6%/s, ASM seeker 10 nm", () => { const C = Sim.CFG; assert.equal(C.DEFENSE.SAM.P, 0.5); assert.equal(C.DEFENSE.SAM.RELOAD, 20); assert.equal(C.DEFENSE.ECM.P, 0.06); assert.equal(C.WEAPONS.asm.seeker, 10); assert.equal(C.WEAPONS.ssm.seeker, 5); });
 test("rays: crossing point, rejects parallel / behind / too far", () => {
   const p = Sim.rays(0, 0, 45, 10, 0, 315); assert.ok(Math.abs(p.x - 5) < 1e-6 && Math.abs(p.y - 5) < 1e-6);
   assert.equal(Sim.rays(0, 0, 0, 5, 0, 0), null, "parallel"); assert.equal(Sim.rays(0, 0, 45, 10, 0, 135), null, "crossing behind");
@@ -403,4 +403,11 @@ test("ally AI switches to the enemy it actually tracks (primary foe out of reach
   const ms = []; let fired = null;
   run(dt => { Sim.aiStep(al, s, true, dt, al, [far, near]); fired = fired || Sim.aiFireStep(al, s, ms, dt, al, [far, near]); }, 200);
   assert.equal(al.ai.pid, 2, "primary follows the tracked enemy"); assert.equal(al.ai.known, "host"); assert.ok(fired && fired.tid === 2 && fired.side === "ally", "fired at the near enemy");
+});
+
+test("player SAM reload: second launch refused for 20 s", () => {
+  const ship = Sim.newShip(), ms = [{ uid: 1, n: 1, side: "enemy", w: "ssm", tid: "own", x: 0, y: 10, hdg: 180, spd: 480, fuel: 100 }, { uid: 2, n: 2, side: "enemy", w: "ssm", tid: "own", x: 0, y: 12, hdg: 180, spd: 480, fuel: 100 }];
+  assert.equal(Sim.launchSam(ship, ms, 1), "SAM launched.");
+  assert.match(Sim.launchSam(ship, ms, 2), /reloading/);
+  Sim.ciwsStep(ship, [], 20); assert.equal(Sim.launchSam(ship, ms, 2), "SAM launched.");
 });
