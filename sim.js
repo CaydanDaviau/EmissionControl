@@ -23,9 +23,9 @@
     DAMAGE: { P_HIT: 0.9, DRIFT_DECEL: 1, DEBUG_DIST: 20, SSM: { second: 0.15, nav: false }, ASM: { second: 0.55, nav: true } },
     // Defense (game data, tunable). Decoy: small chance per deploy to seduce each incoming missile (it then flies straight on, unguided). CIWS: fixed chance per second on ONE missile inside its range.
     // SAM: long range, highest kill chance, limited ammo; resolves after flight time. Dead missiles stay as a white X for X_TIME real seconds.
-    DEFENSE: { ECM: { NAME: "AN/SLQ-32", RANGE: 20, P: 0.01 }, DECOY: { P: 0.2, AMMO: 4, CD: 20 }, CIWS: { RANGE: 1, P: 0.1 }, SAM: { RANGE: 25, P: 0.5, AMMO: 8, SPEED: 2000 }, X_TIME: 10, STRAY: 60 },
+    DEFENSE: { ECM: { NAME: "AN/SLQ-32", RANGE: 20, P: 0.01, EMIT: 40 }, DECOY: { P: 0.2, AMMO: 4, CD: 20 }, CIWS: { RANGE: 1, P: 0.1 }, SAM: { RANGE: 25, P: 0.5, AMMO: 8, SPEED: 2000 }, X_TIME: 10, STRAY: 60 },
     WEAPON: { COUNTDOWN: 5, ARRIVE: 0.5 }, // launch countdown (s, real time); arrive radius (nm)
-    AI: { DUTY_PERIOD: 60, DUTY_ON: 20, SWEEP: 4, SHIP_RCS: 10000, SHIP_H: 60, H_ANT: 100, COAST: 0.02, TURN: 3, WP_NM: 1, FIRE_Q: 0.5, FIRE_CD: 30 }, // enemy radar on 20 s of every 60 s; FIRE_Q = min track quality to fire, FIRE_CD = seconds between launches
+    AI: { DUTY_PERIOD: 60, DUTY_ON: 20, SWEEP: 4, SHIP_RCS: 60000, SHIP_H: 60, H_ANT: 100, COAST: 0.02, TURN: 3, WP_NM: 1, FIRE_Q: 0.5, FIRE_CD: 30 }, // enemy radar on 20 s of every 60 s; FIRE_Q = min track quality to fire, FIRE_CD = seconds between launches
     IDENTIFY: { TIME: 20, D_REF: 10, MIN: 5, MAX: 90 } // TIME = seconds at D_REF nm for a normal (RCS_REF) contact
   };
   const STN = ["NAVIGATION", "SENSORS", "WEAPONS", "DEFENSE"];
@@ -230,7 +230,10 @@
   const mdist = (ship, m) => Math.hypot(m.x - ship.x, m.y - ship.y);
   function defCheck(ship) { return ship.dead[3] ? "Defense station destroyed." : ""; }
   function seduce(ship, m, st) { m.state = st; m.hdg = norm(m.hdg + (rand(ship.rng) < 0.5 ? -1 : 1) * (15 + rand(ship.rng) * 15)); } // loses guidance, veers off, flies straight
-  function toggleEcm(ship) { const why = defCheck(ship); if (why) return why; ship.def.ecm = !ship.def.ecm; return CFG.DEFENSE.ECM.NAME + (ship.def.ecm ? " jamming ON." : " OFF."); }
+  function toggleEcm(ship, emcon) { // emcon = radar silent by choice: jamming is an emission, so it is not allowed (and is forced off when EMCON starts)
+    const why = defCheck(ship); if (why) return why;
+    if (emcon) { ship.def.ecm = false; return "EMCON active: jamming unavailable."; }
+    ship.def.ecm = !ship.def.ecm; return CFG.DEFENSE.ECM.NAME + (ship.def.ecm ? " jamming ON." : " OFF."); }
   function deployDecoy(ship, missiles) { // returns message. Each incoming missile aimed at us rolls P; success = decoyed
     const D = CFG.DEFENSE.DECOY, df = ship.def, why = defCheck(ship);
     if (why) return why; if (df.decoy <= 0) return "No decoys left."; if (df.cd > 0) return "Decoy reloading: " + Math.ceil(df.cd) + " s.";
@@ -285,21 +288,23 @@
     } else { a.sw = 0; if (a.tracks) a.q -= A.COAST * dt; } // silent: track coasts and decays
     if (a.tracks && a.q < CFG.RADAR.Q_DROP) { a.tracks = false; a.q = 0; }
     while (a.es >= CFG.ESM.INTERVAL) { a.es -= CFG.ESM.INTERVAL; // ESM: hears our radar, bearing only
-      if (radarOn && !ship.dead[1] && rand(a) < pEsm(d, { emit: { range: CFG.RADAR.RANGE }, emitting: true, h: A.SHIP_H })) {
+      const er = Math.max(radarOn && !ship.dead[1] ? CFG.RADAR.RANGE : 0, ship.def.ecm && !ship.dead[3] ? CFG.DEFENSE.ECM.EMIT : 0); // our emissions: radar and/or jamming
+      if (er > 0 && rand(a) < pEsm(d, { emit: { range: er }, emitting: true, h: A.SHIP_H })) {
         if (!a.hears) a.nHear++; a.hears = { brg: norm(Math.atan2(dx, dy) * 180 / Math.PI + gauss(a) * CFG.ESM.SIGMA), t: a.t };
       }
     }
     if (a.hears && a.t - a.hears.t > CFG.ESM.HOLD) a.hears = null;
   }
   // Enemy launch rule (real dt): needs a track on us above FIRE_Q, one launch per FIRE_CD seconds.
-  // ASM when we are beyond SSM range, SSM when inside it. The missile goes through the same stepMissiles code as any other.
+  // Weapon is a random pick among those that can reach us (ASM only beyond SSM range). The missile goes through the same stepMissiles code as any other.
   function aiFireStep(c, ship, missiles, dt) {
     const a = c.ai, A = CFG.AI; if (!a) return null;
     a.cd = Math.max(0, a.cd - dt);
     if (a.cd > 0 || ship.sunk || !a.tracks || a.q <= A.FIRE_Q) return null;
     const d = Math.hypot(ship.x - c.x, ship.y - c.y);
-    const w = d <= CFG.WEAPONS.ssm.range && a.ammo.ssm > 0 ? "ssm" : d <= CFG.WEAPONS.asm.range && a.ammo.asm > 0 ? "asm" : null;
-    if (!w) return null;
+    const opts = ["ssm", "asm"].filter(k => a.ammo[k] > 0 && d <= CFG.WEAPONS[k].range); // weapons that can reach us
+    if (!opts.length) return null;
+    const w = opts[Math.floor(rand(a) * opts.length)]; // random mix
     a.ammo[w]--; a.cd = A.FIRE_CD; ++ship.nEnemy;
     const m = { uid: ++ship.uid, n: ship.nEnemy, lbl: "H" + ship.nEnemy, side: "enemy", w, tid: "own", x: c.x, y: c.y,
       hdg: norm(Math.atan2(ship.x - c.x, ship.y - c.y) * 180 / Math.PI), spd: CFG.WEAPONS[w].speed, fuel: CFG.WEAPONS[w].range };

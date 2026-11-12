@@ -386,7 +386,8 @@ function sensUi(){
     return `<div class="esmr">E${c.esmNo}  ${c.emit.name}  BRG ${pad3(c.esm.brg)}\u00b1${Sim.CFG.ESM.SIGMA}${near?"  = TRK "+String(c.id).padStart(4,"0"):""}<div class="d">heard ${Math.round(esm.t-c.esm.t)}s ago</div></div>`;
   }).join(""):'<div class="note">No emitters heard.</div>';
 }
-$("emconB").onclick=()=>{ radar.on=!radar.on; sensUi(); };
+$("emconB").onclick=()=>{ radar.on=!radar.on; if(!radar.on) ship.def.ecm=false; sensUi(); }; // EMCON forces jamming off
+const emcon=()=>!radar.on&&!ship.dead[1]; // radar silent by choice (a destroyed SENSORS station is not EMCON)
 // ---- identify (SENSORS tab) ----
 const IDN={unk:"NEUTRAL",ally:"ALLY",host:"HOSTILE"};
 let idHtml="";
@@ -487,7 +488,7 @@ function defPanel(){
   const cm=df.ciws!=null?missiles.find(k=>k.uid===df.ciws):null;
   $("ciwsNote").textContent="Mode: "+(cm?"MANUAL "+mlbl(cm):"AUTO (closest)")+" · range "+D.CIWS.RANGE+" NM · "+(df.ciwsOn!=null?"ENGAGING "+mlbl(missiles.find(k=>k.uid===df.ciwsOn)||{n:"?"}):"idle");
   $("ciwsB").disabled=dead||!live; $("ciwsA").disabled=dead||df.ciws==null; $("ciwsA").classList.toggle("on",df.ciws==null);
-  $("ecmB").disabled=dead; $("ecmB").classList.toggle("on",df.ecm); $("ecmB").textContent=D.ECM.NAME+(df.ecm?"  ON":"  OFF"); $("ecmNote").textContent="Jams incoming missiles within "+D.ECM.RANGE+" NM. Jammed missiles lose guidance and fly straight on.";
+  $("ecmB").disabled=dead; $("ecmB").classList.toggle("on",df.ecm); $("ecmB").textContent=D.ECM.NAME+(df.ecm?"  ON":"  OFF"); $("ecmNote").textContent="Jams incoming missiles within "+D.ECM.RANGE+" NM. Jammed missiles lose guidance and fly straight on. Jamming is an emission: enemy ESM can hear it. EMCON forces it off.";
   $("decB").disabled=dead||df.decoy<=0||df.cd>0; $("decB").textContent=df.cd>0?"RELOADING "+Math.ceil(df.cd):"DEPLOY DECOY";
   $("decNote").textContent="Decoys "+df.decoy; $("defMsg").textContent=defMsg;
 }
@@ -495,7 +496,7 @@ $("dmList").addEventListener("pointerdown",e=>{ const r=e.target.closest(".idr")
 $("samB").onclick=()=>{ defMsg=Sim.launchSam(ship,missiles,msel); defList(); defPanel(); };
 $("ciwsB").onclick=()=>{ Sim.setCiws(ship,msel); defList(); defPanel(); };
 $("ciwsA").onclick=()=>{ Sim.setCiws(ship,null); defList(); defPanel(); };
-$("ecmB").onclick=()=>{ defMsg=Sim.toggleEcm(ship); defPanel(); };
+$("ecmB").onclick=()=>{ defMsg=Sim.toggleEcm(ship,emcon()); defPanel(); };
 $("decB").onclick=()=>{ defMsg=Sim.deployDecoy(ship,missiles); defList(); defPanel(); };
 
 // ---- controls ----
@@ -558,6 +559,7 @@ function frame(t){
   const rdt=Math.min(0.1,(t-last)/1000); last=t; let sdt=rdt*TS[S.ts]; // rdt = real time (radar), sdt = scaled (ship motion)
   if(!S.paused){ while(sdt>0){ const h=Math.min(0.5,sdt); Sim.step(ship,h); for(const c of contacts) Sim.stepContact(c,h); Sim.stepMissiles(missiles,contacts,h,ship); Sim.stepDefense(ship,missiles,h); sdt-=h; }
     if(ship.dead[1]){ radar.on=false; for(const c of contacts) c.esm=null; }
+    if(emcon()) ship.def.ecm=false;
     for(const c of contacts){ Sim.aiStep(c,ship,radar.on,rdt); Sim.aiFireStep(c,ship,missiles,rdt); } // sensors destroyed: radar dead, ESM deaf
     Sim.radarStep(radar,ship,contacts,rdt); if(!ship.dead[1]) Sim.esmStep(esm,ship,contacts,rdt); Sim.identifyStep(contacts,rdt,radar.on,ship); Sim.fireStep(ship,contacts,missiles,rdt); Sim.reap(missiles,rdt); Sim.ecmStep(ship,missiles,rdt); Sim.ciwsStep(ship,missiles,rdt); } // sensors run in real time
   blink=Math.floor(t/300)%2; S.lock=!ship.wreck&&missiles.some(m=>m.tid==="own"&&!m.state); // enemy missile aimed at us

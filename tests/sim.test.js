@@ -136,15 +136,27 @@ test("enemy AI: duty cycle, detects ship, ESM hears radar, patrols", () => {
   assert.ok(!c2.ai.hears); // our radar off: not heard
 });
 
-test("AI fires only with a good track, one per cooldown, ASM beyond SSM range, SSM inside", () => {
+test("AI fires only with a good track, one per cooldown; random weapon mix, ASM only beyond SSM range", () => {
   const ship = Sim.newShip(), ms = [], c = mk(0, 20, { side: "enemy" }); c.ai = Sim.newAi(1, null);
   assert.equal(Sim.aiFireStep(c, ship, ms, 1), null, "no track, no fire");
   c.ai.tracks = true; c.ai.q = 0.4; assert.equal(Sim.aiFireStep(c, ship, ms, 1), null, "track too weak");
   c.ai.q = 0.8; const m1 = Sim.aiFireStep(c, ship, ms, 1);
-  assert.ok(m1 && m1.w === "ssm" && m1.tid === "own" && m1.side === "enemy", "SSM inside 70 nm");
+  assert.ok(m1 && m1.tid === "own" && m1.side === "enemy");
   assert.equal(Sim.aiFireStep(c, ship, ms, 1), null, "cooldown");
-  run(dt => Sim.aiFireStep(c, ship, ms, dt), 0); c.ai.cd = 0; c.y = 100;
-  const m2 = Sim.aiFireStep(c, ship, ms, 1); assert.ok(m2 && m2.w === "asm", "ASM beyond SSM range");
-  c.ai.cd = 0; c.y = 200; assert.equal(Sim.aiFireStep(c, ship, ms, 1), null, "out of ASM range");
-  assert.equal(ms.length, 2); assert.equal(c.ai.ammo.ssm, 7); assert.equal(c.ai.ammo.asm, 3);
+  const seen = new Set(); c.ai.ammo = { ssm: 500, asm: 500 };
+  for (let i = 0; i < 40; i++) { c.ai.cd = 0; seen.add(Sim.aiFireStep(c, ship, ms, 1).w); }
+  assert.deepEqual([...seen].sort(), ["asm", "ssm"], "both weapons used inside SSM range");
+  c.y = 100; c.ai.cd = 0; assert.equal(Sim.aiFireStep(c, ship, ms, 1).w, "asm", "only ASM reaches 100 nm");
+  c.y = 200; c.ai.cd = 0; assert.equal(Sim.aiFireStep(c, ship, ms, 1), null, "out of ASM range");
+});
+test("enemy ESM hears our jamming even with radar off; EMCON refuses and forces jamming off", () => {
+  const ship = Sim.newShip(), c = mk(0, 20, { side: "enemy", emit: { name: "X", range: 35 } }); c.ai = Sim.newAi(5, null);
+  run(dt => Sim.aiStep(c, ship, false, dt), 120); assert.equal(c.ai.hears, null, "radar off, jamming off: silent");
+  ship.def.ecm = true; run(dt => Sim.aiStep(c, ship, false, dt), 60); assert.ok(c.ai.nHear > 0, "jamming is heard");
+  assert.equal(Sim.toggleEcm(ship, true), "EMCON active: jamming unavailable."); assert.equal(ship.def.ecm, false);
+  assert.ok(/ON/.test(Sim.toggleEcm(ship, false)) && ship.def.ecm, "can turn on without EMCON");
+});
+test("enemy radar detects our enlarged cross section at ~50 nm when above the horizon cap", () => {
+  const A = Sim.CFG.AI, rd = 35 * Math.pow(A.SHIP_RCS / Sim.CFG.RADAR.RCS_REF, 0.25);
+  assert.ok(rd > 50 && rd < 60, "R_det " + rd.toFixed(1));
 });
