@@ -25,14 +25,14 @@
     // SAM: long range, highest kill chance, limited ammo; resolves after flight time. Dead missiles stay as a white X for X_TIME real seconds.
     DEFENSE: { ECM: { NAME: "AN/SLQ-32", RANGE: 20, P: 0.01, EMIT: 40 }, DECOY: { P: 0.2, AMMO: 4, CD: 20 }, CIWS: { RANGE: 1, P: 0.1 }, SAM: { RANGE: 25, P: 0.5, AMMO: 8, SPEED: 2000 }, X_TIME: 10, STRAY: 60 },
     WEAPON: { COUNTDOWN: 5, ARRIVE: 0.5 }, // launch countdown (s, real time); arrive radius (nm)
-    AI: { DUTY_PERIOD: 60, DUTY_ON: 20, SWEEP: 4, SHIP_RCS: 10000, SHIP_H: 60, H_ANT: 100, COAST: 0.02, TURN: 3, WP_NM: 1, FIRE_Q: 0.5, FIRE_CD: 30 }, // enemy radar on 20 s of every 60 s; FIRE_Q = min track quality to fire, FIRE_CD = seconds between launches
+    AI: { DUTY_PERIOD: 60, DUTY_ON: 20, SWEEP: 4, SHIP_RCS: 10000, SHIP_H: 60, H_ANT: 100, COAST: 0.02, TURN: 3, WP_NM: 1, FIRE_Q: 0.5, FIRE_CD: 30, HOLD: 0.8, BAND: 4, GIVE_UP: 180 }, // HOLD = fraction of its radar range it tries to keep us at (detection edge), BAND = +- nm around that, GIVE_UP = real s without a track before it goes back to patrol; // enemy radar on 20 s of every 60 s; FIRE_Q = min track quality to fire, FIRE_CD = seconds between launches
     IDENTIFY: { TIME: 20, D_REF: 10, MIN: 5, MAX: 90 } // TIME = seconds at D_REF nm for a normal (RCS_REF) contact
   };
   const STN = ["NAVIGATION", "SENSORS", "WEAPONS", "DEFENSE"];
   const norm = a => ((a % 360) + 360) % 360;
   const diff = (to, from) => { const d = norm(to - from); return d > 180 ? d - 360 : d; };
 
-  function newShip() { return { x: 0, y: 0, hdg: 0, spd: 0, ordHdg: 0, ordSpd: 0,
+  function newShip() { return { rel: "host", x: 0, y: 0, hdg: 0, spd: 0, ordHdg: 0, ordSpd: 0,
     loadout: [{ w: "ssm", ammo: 8 }, { w: "asm", ammo: 4 }], fire: null, fireMsg: "", nMsl: 0,
     dead: [false, false, false, false], sunk: false, wreck: false, rng: { seed: 20261113 }, nEnemy: 0, hitSeq: 0, hitMsg: "", uid: 0,
     def: { decoy: CFG.DEFENSE.DECOY.AMMO, sam: CFG.DEFENSE.SAM.AMMO, cd: 0, ciws: null, ciwsOn: null, ecm: false }, sams: [] }; } // ciws = manual target uid (null = auto), ciwsOn = uid being engaged now; sams = pending intercepts // x east nm, y north nm
@@ -92,13 +92,19 @@
       }
     }
   }
+  function steer(c, want, dt) { const dh = diff(want, c.hdg), mt = CFG.AI.TURN * dt; c.hdg = norm(Math.abs(dh) <= mt ? want : c.hdg + Math.sign(dh) * mt); }
   function stepContact(c, dt) {
     const a = c.ai;
-    if (a && a.wp) { // patrol: steer to the next waypoint (loop), same turn rate as ships
+    if (a && a.state && a.state !== "patrol") { // hunting (id / engage): close in at flank, then hold at the edge of its detection (HOLD x radar range); too close = open range, inside the band = circle
+      const dx = a.lx - c.x, dy = a.ly - c.y, d = Math.hypot(dx, dy), hold = CFG.AI.HOLD * c.emit.range, to = norm(Math.atan2(dx, dy) * 180 / Math.PI);
+      let want = to, spd = CFG.FLANK;
+      if (a.tracks) { if (d < hold - CFG.AI.BAND) { want = norm(to + 180); spd = CFG.CRUISE; } else if (d <= hold + CFG.AI.BAND) { want = norm(to + 90); spd = CFG.CRUISE; } }
+      else if (d < 1) { want = c.hdg; spd = CFG.CRUISE; } // reached the last known position, nothing there
+      steer(c, want, dt); c.spd = spd;
+    } else if (a && a.wp) { // patrol: steer to the next waypoint (loop), same turn rate as ships
       const w = a.wp[a.i], dx = w[0] - c.x, dy = w[1] - c.y;
       if (Math.hypot(dx, dy) < CFG.AI.WP_NM) a.i = (a.i + 1) % a.wp.length;
-      const want = norm(Math.atan2(dx, dy) * 180 / Math.PI), dh = diff(want, c.hdg), mt = CFG.AI.TURN * dt;
-      c.hdg = norm(Math.abs(dh) <= mt ? want : c.hdg + Math.sign(dh) * mt);
+      steer(c, norm(Math.atan2(dx, dy) * 180 / Math.PI), dt); c.spd = CFG.CRUISE;
     }
     if (!c.spd) return;
     const r = c.hdg * Math.PI / 180, d = c.spd * dt / 3600;
@@ -271,21 +277,33 @@
   }
   function reap(missiles, dt) { for (let i = missiles.length - 1; i >= 0; i--) { const m = missiles[i]; if (m.state === "dead" && (m.dieT -= dt) <= 0) missiles.splice(i, 1); } } // real dt
   // ---- enemy AI (first stage): patrol, duty-cycled radar, ESM; same sensor rules as the player, no weapons yet. Real-time dt ----
-  function newAi(seed, wp) { return { seed: seed | 0, wp, i: 0, t: 0, sw: 0, es: 0, q: 0, tracks: false, hears: null, nHear: 0, cd: 0, ammo: { ssm: 8, asm: 4 } }; }
+  function newAi(seed, wp) { return { seed: seed | 0, wp, i: 0, t: 0, sw: 0, es: 0, q: 0, tracks: false, hears: null, nHear: 0, cd: 0, ammo: { ssm: 8, asm: 4 }, state: "patrol", known: null, idp: 0, lost: 0, lx: 0, ly: 0 }; } // state: patrol | id | engage; known: null | "host" | "neutral" (its identification of us); idp: identify progress 0..1; lx/ly: last detected position of us
+  function aiIdTime(d) { const I = CFG.IDENTIFY; return Math.max(I.MIN, Math.min(I.MAX, I.TIME * (0.6 + 0.4 * d / I.D_REF) * Math.pow(CFG.RADAR.RCS_REF / CFG.AI.SHIP_RCS, 0.25))); } // same formula as ours
+  function resetAi(a) { a.state = "patrol"; a.known = null; a.idp = 0; a.lost = 0; a.tracks = false; a.q = 0; a.cd = 0; a.ammo = { ssm: 8, asm: 4 }; }
   function aiStep(c, ship, radarOn, dt) {
     const a = c.ai, A = CFG.AI; if (!a) return;
     a.t += dt; a.sw += dt; a.es += dt;
-    c.emitting = (a.t % A.DUTY_PERIOD) < A.DUTY_ON;
+    c.emitting = a.state !== "patrol" || (a.t % A.DUTY_PERIOD) < A.DUTY_ON; // patrol: duty-cycled radar; hunting: radar stays on (aggressive)
     const dx = ship.x - c.x, dy = ship.y - c.y, d = Math.hypot(dx, dy);
     if (c.emitting) { // radar: one roll per sweep period, same model as ours
       while (a.sw >= A.SWEEP) { a.sw -= A.SWEEP;
         const rd = c.emit.range * Math.pow(A.SHIP_RCS / CFG.RADAR.RCS_REF, 0.25); // no horizon cap (same rule as our radar): range comes from cross section only
         const p = 1 / (1 + Math.exp(-(rd - d) / (0.15 * rd)));
-        if (rand(a) < p) { a.q += (1 - a.q) * CFG.RADAR.Q_HIT; a.tracks = true; a.dist = d; a.brg = norm(Math.atan2(dx, dy) * 180 / Math.PI); }
+        if (rand(a) < p) { a.q += (1 - a.q) * CFG.RADAR.Q_HIT; a.tracks = true; a.lx = ship.x; a.ly = ship.y; a.dist = d; a.brg = norm(Math.atan2(dx, dy) * 180 / Math.PI); }
         else if (a.tracks) { a.q -= CFG.RADAR.Q_MISS; }
       }
     } else { a.sw = 0; if (a.tracks) a.q -= A.COAST * dt; } // silent: track coasts and decays
     if (a.tracks && a.q < CFG.RADAR.Q_DROP) { a.tracks = false; a.q = 0; }
+    // behaviour: a radar track starts identification (hostile known = engage at once; neutral known = ignore). Same rules as ours: needs a continuous track, losing it resets progress.
+    if (a.state === "patrol") { if (a.tracks && a.known !== "neutral") { a.state = a.known === "host" ? "engage" : "id"; a.idp = 0; a.lost = 0; } }
+    else {
+      if (a.tracks) a.lost = 0; else a.lost += dt;
+      if (a.state === "id") {
+        if (!a.tracks) a.idp = 0;
+        else if (c.emitting) { a.idp += dt / aiIdTime(d); if (a.idp >= 1) { a.idp = 0; a.known = ship.rel; a.state = a.known === "host" ? "engage" : "patrol"; } }
+      }
+      if (a.lost > A.GIVE_UP) { a.state = "patrol"; a.idp = 0; } // lost it for too long: back to patrol
+    }
     while (a.es >= CFG.ESM.INTERVAL) { a.es -= CFG.ESM.INTERVAL; // ESM: hears our radar, bearing only
       const er = Math.max(radarOn && !ship.dead[1] ? CFG.RADAR.RANGE : 0, ship.def.ecm && !ship.dead[3] ? CFG.DEFENSE.ECM.EMIT : 0); // our emissions: radar and/or jamming
       if (er > 0 && rand(a) < pEsm(d, { emit: { range: er }, emitting: true, h: A.SHIP_H })) {
@@ -299,7 +317,7 @@
   function aiFireStep(c, ship, missiles, dt) {
     const a = c.ai, A = CFG.AI; if (!a) return null;
     a.cd = Math.max(0, a.cd - dt);
-    if (a.cd > 0 || ship.sunk || !a.tracks || a.q <= A.FIRE_Q) return null;
+    if (a.state !== "engage" || a.cd > 0 || ship.sunk || !a.tracks || a.q <= A.FIRE_Q) return null;
     const d = Math.hypot(ship.x - c.x, ship.y - c.y);
     const opts = ["ssm", "asm"].filter(k => a.ammo[k] > 0 && d <= CFG.WEAPONS[k].range); // weapons that can reach us
     if (!opts.length) return null;
@@ -309,6 +327,6 @@
       hdg: norm(Math.atan2(ship.x - c.x, ship.y - c.y) * 180 / Math.PI), spd: CFG.WEAPONS[w].speed, fuel: CFG.WEAPONS[w].range };
     missiles.push(m); return m;
   }
-  const api = { aiFireStep, newAi, aiStep, ciwsStep, ecmStep, toggleEcm, deployDecoy, launchSam, setCiws, stepDefense, reap, defCheck, CFG, norm, diff, newShip, step, newRadar, newContact, pDetect, radarStep, setTag, stepContact, newEsm, pEsm, esmStep, startIdentify, cancelIdentify, identifyStep, identifyTime, fireCheck, startFire, cancelFire, fireStep, stepMissiles, hitShip, debugMissile, resetShip, STN };
+  const api = { resetAi, aiIdTime, aiFireStep, newAi, aiStep, ciwsStep, ecmStep, toggleEcm, deployDecoy, launchSam, setCiws, stepDefense, reap, defCheck, CFG, norm, diff, newShip, step, newRadar, newContact, pDetect, radarStep, setTag, stepContact, newEsm, pEsm, esmStep, startIdentify, cancelIdentify, identifyStep, identifyTime, fireCheck, startFire, cancelFire, fireStep, stepMissiles, hitShip, debugMissile, resetShip, STN };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.Sim = api;
 })(typeof self !== "undefined" ? self : this);

@@ -551,7 +551,7 @@ sweepUi();
 // ---- damage: destroyed stations show DESTROYED; debug buttons live in the menu ----
 function applyDmg(){ $("sensPage").classList.toggle("dead",ship.dead[1]); $("wpnPage").classList.toggle("dead",ship.dead[2]);
   $("defPage").classList.toggle("dead",ship.dead[3]); $("navPage").classList.toggle("navdead",ship.dead[0]); }
-$("dbgR").onclick=()=>{ Sim.resetShip(ship); radar.on=true; missiles.length=0; for(const c of contacts) if(c.ai){ c.ai.cd=0; c.ai.ammo={ssm:8,asm:4}; } msel=null; defMsg=""; bannerT=0; applyDmg(); sensUi(); };
+$("dbgR").onclick=()=>{ Sim.resetShip(ship); radar.on=true; missiles.length=0; for(const c of contacts) if(c.ai) Sim.resetAi(c.ai); msel=null; defMsg=""; bannerT=0; applyDmg(); sensUi(); };
 
 // ---- loop ----
 let last=performance.now();
@@ -569,7 +569,7 @@ function frame(t){
   hud(); draw(); if(stIdx===1) identPanel(); if(stIdx===2) wpnPanel(); if(stIdx===3) defPanel(); requestAnimationFrame(frame);
 }
 $("sensPage").insertAdjacentHTML("beforeend",'<div class="note" id="aiDbg" style="border-top:1px dashed #555;margin-top:8px;padding-top:6px"></div>');
-function aiDbg(){ const c=contacts[0], a=c.ai; $("aiDbg").innerHTML="DEBUG ENEMY<br>Radar: "+(c.emitting?"ON":"off")+" ("+Math.round(a.t%60)+"/60 s)<br>Tracks you: "+(a.tracks?Math.round(a.q*100)+"%":"no")+"<br>Hears your radar: "+(a.hears?"yes, BRG "+pad3(a.hears.brg):"no")+"<br>Range: "+Math.hypot(c.x-ship.x,c.y-ship.y).toFixed(1)+" nm<br>Next launch in: "+Math.ceil(a.cd)+" s · SSM "+a.ammo.ssm+" · ASM "+a.ammo.asm; }
+function aiDbg(){ const c=contacts[0], a=c.ai; $("aiDbg").innerHTML="DEBUG ENEMY<br>Radar: "+(c.emitting?"ON":"off")+" ("+Math.round(a.t%60)+"/60 s)<br>Tracks you: "+(a.tracks?Math.round(a.q*100)+"%":"no")+"<br>Hears your radar: "+(a.hears?"yes, BRG "+pad3(a.hears.brg):"no")+"<br>Range: "+Math.hypot(c.x-ship.x,c.y-ship.y).toFixed(1)+" nm<br>State: "+a.state+(a.known?" ("+a.known+")":"")+(a.state==="id"?" \u00b7 ID "+Math.round(a.idp*100)+"%":"")+"<br>Next launch in: "+Math.ceil(a.cd)+" s · SSM "+a.ammo.ssm+" · ASM "+a.ammo.asm; }
 setInterval(()=>{aiDbg();fillTable();sensUi();wpnList();defList();applyDmg();},500);
 resize(); ui(); sensUi(); identPanel(); wpnList(); wpnPanel(); defList(); defPanel(); requestAnimationFrame(frame);
 </script>
