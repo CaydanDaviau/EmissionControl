@@ -404,10 +404,10 @@
   function aiStep(c, ship, radarOn, dt, ally, contacts) {
     const a = c.ai, A = CFG.AI; if (!a) return;
     a.t += dt; a.sw += dt; a.es += dt;
-    const foes = foesOf(c, ship, ally, contacts), P = bindPrimary(a, foes);
+    const foes = foesOf(c, ship, ally, contacts); let P = bindPrimary(a, foes);
     if (c.sunk || (c.dead && c.dead[1])) { c.emitting = false; a.tracks = false; a.q = 0; a.fr = {}; a.hears = null; if (a.state !== "patrol") { a.lost += dt; if (a.lost > A.GIVE_UP) { a.state = "patrol"; a.idp = 0; } } return; } // sensors destroyed: no radar, no ESM
     c.emitting = (a.state === "id" && a.tracks) || (a.t % A.DUTY_PERIOD) < A.DUTY_ON; // 20/60 duty cycle always (also in combat); exception: while identifying an unknown it holds a track, radar stays ON until identified or the contact is lost
-    const D = f => Math.hypot(f.x - c.x, f.y - c.y), d = P ? D(P) : Infinity;
+    const D = f => Math.hypot(f.x - c.x, f.y - c.y); let d = P ? D(P) : Infinity;
     if (c.emitting) { // radar: one roll per sweep period per foe, same model as ours
       while (a.sw >= A.SWEEP) { a.sw -= A.SWEEP;
         for (const f of foes) { if (!isShip(f) && f.sunk) continue;
@@ -420,6 +420,12 @@
     if (a.tracks && a.q < CFG.RADAR.Q_DROP) { a.tracks = false; a.q = 0; }
     for (const k in a.fr) { const f = foes.find(u => String(keyOf(u)) === k), r = a.fr[k];
       if (!f || f.sunk) delete a.fr[k]; else if (r.tracks && r.q < CFG.RADAR.Q_DROP) { r.tracks = false; r.q = 0; } }
+    if (!a.tracks && a.state !== "engage") { // the primary foe is not tracked but another is: switch to it (identification and the hunt follow the foe it actually has a track on)
+      let bk = null; for (const k in a.fr) if (a.fr[k].tracks && (bk === null || a.fr[k].q > a.fr[bk].q)) bk = k;
+      const nf = bk === null ? null : foes.find(u => String(keyOf(u)) === bk);
+      if (nf) { if (P) a.fr[a.pid] = { tracks: false, q: 0, known: a.known, idp: 0 }; const r = a.fr[bk]; delete a.fr[bk];
+        a.pid = keyOf(nf); P = nf; d = D(nf); a.tracks = true; a.q = r.q; a.known = r.known || null; a.idp = 0; a.lost = 0; a.lx = nf.x; a.ly = nf.y; a.dist = d; a.brg = norm(Math.atan2(nf.x - c.x, nf.y - c.y) * 180 / Math.PI); a.state = "patrol"; }
+    }
     // behaviour: a radar track starts identification (hostile known = engage at once; neutral known = ignore). Same rules as ours: needs a continuous track, losing it resets progress.
     if (a.state === "patrol") {
       if (a.tracks && a.known !== "neutral") { a.state = a.known === "host" ? "engage" : "id"; a.idp = 0; a.lost = 0; }

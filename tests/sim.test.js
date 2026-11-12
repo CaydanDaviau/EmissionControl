@@ -397,3 +397,10 @@ test("ally escorts, then hunts a hostile it is identifying/engaging, and returns
   al.ai.state = "patrol"; al.ai.tracks = false; run(dt => Sim.allyStep(al, s, dt), 3000, 1); assert.ok(Math.hypot(al.x - 15, al.y) < 1, "back in the slot");
   const d = Sim.newAlly(15, 0); d.dead[0] = true; d.hdg = 90; d.spd = 10; d.ai.state = "engage"; d.ai.tracks = true; d.ai.lx = 0; d.ai.ly = 80; Sim.allyStep(d, s, 1); assert.equal(d.hdg, 90, "NAV destroyed holds course");
 });
+
+test("ally AI switches to the enemy it actually tracks (primary foe out of reach) and engages it", () => {
+  const s = Sim.newShip(), al = Sim.newAlly(0, 0), far = mkEn(60), near = mkEn(25); far.id = 1; near.id = 2; far.x = 0; far.y = 60; near.x = 20; near.y = 15; s.x = 0; s.y = -90; al.ai.t = 0;
+  const ms = []; let fired = null;
+  run(dt => { Sim.aiStep(al, s, true, dt, al, [far, near]); fired = fired || Sim.aiFireStep(al, s, ms, dt, al, [far, near]); }, 200);
+  assert.equal(al.ai.pid, 2, "primary follows the tracked enemy"); assert.equal(al.ai.known, "host"); assert.ok(fired && fired.tid === 2 && fired.side === "ally", "fired at the near enemy");
+});
