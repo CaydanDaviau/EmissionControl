@@ -10,7 +10,7 @@
     TURN_FULL_AT: 8, // kt at which turn rate is 100%
     TURN_MIN: 0.2, // fraction of turn rate left when slow/stopped
     // Burke radar (per-ship data later)
-    RADAR: { RANGE: 70, H_ANT: 100, PERIOD: 4, RCS_REF: 10000, Q_HIT: 0.35, Q_MISS: 0.08, Q_DROP: 0.10 },
+    RADAR: { HORIZON: 32, RANGE: 70, H_ANT: 100, PERIOD: 4, RCS_REF: 10000, Q_HIT: 0.35, Q_MISS: 0.08, Q_DROP: 0.10 },
     // ESM (passive): hears emitting radars, bearing only. Own-ship data, per-ship later.
     // Detect range = RANGE_FACTOR * emitter radar range. No horizon cap for now (user's choice; H_ANT and DUCT are unused).
     ESM: { H_ANT: 100, RANGE_FACTOR: 2, DUCT: 1.3, INTERVAL: 2, SIGMA: 10, HOLD: 15 },
@@ -25,7 +25,7 @@
     // SAM: long range, highest kill chance, limited ammo; resolves after flight time. Dead missiles stay as a white X for X_TIME real seconds.
     DEFENSE: { ECM: { NAME: "AN/SLQ-32", RANGE: 20, P: 0.01, EMIT: 40 }, DECOY: { P: 0.2, AMMO: 4, CD: 20 }, CIWS: { RANGE: 1, P: 0.1 }, SAM: { RANGE: 25, P: 0.5, AMMO: 16, SPEED: 2000 }, X_TIME: 10, STRAY: 60 },
     WEAPON: { COUNTDOWN: 5, ARRIVE: 0.5, SEEKER: 5 }, // SEEKER = nm: a missile reaching the last known position hits only if the target is truly within this; // launch countdown (s, real time); arrive radius (nm)
-    AI: { DUTY_PERIOD: 60, DUTY_ON: 20, SWEEP: 4, SHIP_RCS: 10000, SHIP_H: 60, H_ANT: 100, COAST: 0.02, TURN: 3, WP_NM: 1, FIRE_Q: 0.5, FIRE_CD: 30, HOLD: 0.8, BAND: 4, GIVE_UP: 180, REACT_MIN: 2, REACT_MAX: 5, DECOY_RANGE: 15, SAM_RESERVE: 4 }, // HOLD = fraction of its radar range it tries to keep us at (detection edge), BAND = +- nm around that, GIVE_UP = real s without a track before it goes back to patrol; // enemy radar on 20 s of every 60 s; FIRE_Q = min track quality to fire, FIRE_CD = seconds between launches
+    AI: { DUTY_PERIOD: 60, DUTY_ON: 20, SWEEP: 4, SHIP_RCS: 10000, SHIP_H: 60, H_ANT: 100, COAST: 0.02, TURN: 3, WP_NM: 1, FIRE_Q: 0.5, FIRE_CD: 30, HOLD: 0.8, BAND: 4, GIVE_UP: 180, REACT_MIN: 2, REACT_MAX: 5, DECOY_RANGE: 4 }, // HOLD = fraction of its radar range it tries to keep us at (detection edge), BAND = +- nm around that, GIVE_UP = real s without a track before it goes back to patrol; // enemy radar on 20 s of every 60 s; FIRE_Q = min track quality to fire, FIRE_CD = seconds between launches
     IDENTIFY: { TIME: 20, D_REF: 10, MIN: 5, MAX: 90 } // TIME = seconds at D_REF nm for a normal (RCS_REF) contact
   };
   const STN = ["NAVIGATION", "SENSORS", "WEAPONS", "DEFENSE"];
@@ -70,7 +70,7 @@
       seen: false, tracked: false, q: 0, px: 0, py: 0, lastHit: -1e9 };
   }
   function pDetect(d, c) {
-    const R = CFG.RADAR; // no radar horizon for now (user's choice, sea-skimmers dropped): detection depends on RCS and range only
+    const R = CFG.RADAR; if (d > R.HORIZON) return 0; // flat horizon cap (nm), then RCS and range
     const rd = R.RANGE * Math.pow(c.rcs / R.RCS_REF, 0.25);
     return 1 / (1 + Math.exp(-(rd - d) / (0.15 * rd)));
   }
@@ -118,6 +118,7 @@
   function pEsm(d, c) {
     const E = CFG.ESM;
     if (!c.emit || !c.emitting) return 0;
+    if (d > CFG.RADAR.HORIZON * E.DUCT) return 0; // ESM hears a little past the radar horizon (ducting)
     const rd = E.RANGE_FACTOR * c.emit.range;
     return 1 / (1 + Math.exp(-(rd - d) / (0.15 * rd)));
   }
@@ -302,7 +303,7 @@
       if (m.aiT > 0) { m.aiT -= dt; continue; }
       th.push({ m, d }); }
     th.sort((a, b) => (b.m.w === "asm") - (a.m.w === "asm") || a.d - b.d);
-    for (const { m } of th) if (!df.sams.some(q => q.uid === m.uid) && df.sam > (m.w === "asm" ? 0 : A.SAM_RESERVE)) { df.sam--; df.sams.push({ uid: m.uid, x: c.x, y: c.y }); } // SAMs: ASMs first, SSMs only above the reserve
+    for (const { m } of th) if (!df.sams.some(q => q.uid === m.uid) && df.sam > 0) { df.sam--; df.sams.push({ uid: m.uid, x: c.x, y: c.y }); } // SAMs: ASMs first (sorted), then SSMs while ammo lasts
     const ssm = th.filter(k => k.m.w === "ssm");
     if (df.cd <= 0 && df.decoy > 0 && ssm.some(k => !k.m.state && k.d <= A.DECOY_RANGE)) { df.decoy--; df.cd = S.DECOY.CD; for (const k of ssm) if (!k.m.state && rand(c.rng) < S.DECOY.P) seduce(c, k.m, "decoy"); }
     const jm = ssm.filter(k => !k.m.state && k.d <= S.ECM.RANGE);
@@ -333,7 +334,7 @@
     if (c.emitting) { // radar: one roll per sweep period, same model as ours
       while (a.sw >= A.SWEEP) { a.sw -= A.SWEEP;
         const rd = c.emit.range * Math.pow(A.SHIP_RCS / CFG.RADAR.RCS_REF, 0.25); // no horizon cap (same rule as our radar): range comes from cross section only
-        const p = 1 / (1 + Math.exp(-(rd - d) / (0.15 * rd)));
+        const p = d > CFG.RADAR.HORIZON ? 0 : 1 / (1 + Math.exp(-(rd - d) / (0.15 * rd))); // same horizon cap as ours
         if (rand(a) < p) { a.q += (1 - a.q) * CFG.RADAR.Q_HIT; a.tracks = true; a.lx = ship.x; a.ly = ship.y; a.dist = d; a.brg = norm(Math.atan2(dx, dy) * 180 / Math.PI); }
         else if (a.tracks) { a.q -= CFG.RADAR.Q_MISS; }
       }

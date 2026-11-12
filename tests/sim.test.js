@@ -163,26 +163,26 @@ test("enemy ESM hears our jamming even with radar off; EMCON refuses and forces 
 });
 test("enemy radar equals ours: same range and same RCS for our ship", () => {
   const A = Sim.CFG.AI; assert.equal(A.SHIP_RCS, Sim.CFG.RADAR.RCS_REF); assert.equal(A.SWEEP, Sim.CFG.RADAR.PERIOD);
-  const near = Sim.newShip(), c1 = mk(0, 60, { side: "enemy", emit: { name: "X", range: Sim.CFG.RADAR.RANGE } }), c2 = mk(0, 150, { side: "enemy", emit: { name: "X", range: Sim.CFG.RADAR.RANGE } });
+  const near = Sim.newShip(), c1 = mk(0, 25, { side: "enemy", emit: { name: "X", range: Sim.CFG.RADAR.RANGE } }), c2 = mk(0, 40, { side: "enemy", emit: { name: "X", range: Sim.CFG.RADAR.RANGE } });
   c1.ai = Sim.newAi(7, null); c2.ai = Sim.newAi(7, null);
   run(dt => { Sim.aiStep(c1, near, true, dt); Sim.aiStep(c2, near, true, dt); }, 120);
-  assert.ok(c1.ai.dist !== undefined, "60 nm detected"); assert.equal(c2.ai.dist, undefined, "150 nm never detected");
+  assert.ok(c1.ai.dist !== undefined, "25 nm detected"); assert.equal(c2.ai.dist, undefined, "40 nm (beyond the 32 nm cap) never detected");
 });
 
-test("our radar has no horizon cap: sees a normal contact at 50 nm, a small one (rcs 100) not", () => {
-  const ship = Sim.newShip(), radar = Sim.newRadar(11), big = mk(0, 50), small = Sim.newContact(2, 90, 50, { rcs: 100 });
+test("our radar: sees a normal contact at 30 nm (inside the cap), a small one (rcs 10) not", () => {
+  const ship = Sim.newShip(), radar = Sim.newRadar(11), big = mk(0, 30), small = Sim.newContact(2, 90, 30, { rcs: 10 });
   run(dt => Sim.radarStep(radar, ship, [big, small], dt), 80);
-  assert.ok(big.tracked, "50 nm tracked"); assert.equal(small.seen, false, "rcs 100 at 50 nm never seen");
+  assert.ok(big.tracked, "30 nm tracked"); assert.equal(small.seen, false, "rcs 10 at 30 nm never seen");
 });
 
 const mkAi = (range, emitRange) => { const c = mk(0, range, { side: "enemy", speed: 15, emit: { name: "X", range: emitRange || 70 } }); c.ai = Sim.newAi(3, null); return c; };
 test("AI identifies us (needs a continuous track), then engages when we are hostile and keeps radar on", () => {
-  const ship = Sim.newShip(), c = mkAi(50); let sawId = false;
+  const ship = Sim.newShip(), c = mkAi(25); let sawId = false;
   run(dt => { Sim.aiStep(c, ship, true, dt); if (c.ai.state === "id") sawId = true; }, 300);
   assert.ok(sawId, "went through the id state"); assert.equal(c.ai.known, "host"); assert.equal(c.ai.state, "engage");
 });
 test("AI identifies a neutral and goes back to patrol; does not re-identify it", () => {
-  const ship = Sim.newShip(); ship.rel = "neutral"; const c = mkAi(50);
+  const ship = Sim.newShip(); ship.rel = "neutral"; const c = mkAi(25);
   run(dt => Sim.aiStep(c, ship, true, dt), 300);
   assert.equal(c.ai.known, "neutral"); assert.equal(c.ai.state, "patrol");
   run(dt => Sim.aiStep(c, ship, true, dt), 60); assert.equal(c.ai.state, "patrol", "stays on patrol");
@@ -241,10 +241,19 @@ test("enemy defenses: SAM at ASM after the reaction delay; decoy/ECM/CIWS only o
   const c = mkEn(0), cfg = Sim.CFG;
   const asm = own(c, "asm", 0, 10, { uid: 1 }), ms = [asm]; run(dt => Sim.aiDefStep(c, ms, dt), 1); assert.equal(c.def.sam, 16, "still reacting");
   run(dt => Sim.aiDefStep(c, ms, dt), 6); assert.equal(c.def.sam, 15); assert.equal(c.def.sams.length, 1); assert.equal(c.def.decoy, 4, "no decoy vs ASM");
-  const c2 = mkEn(0), ssm = own(c2, "ssm", 0, 10, { uid: 2 }), m2 = [ssm]; c2.def.sam = cfg.AI.SAM_RESERVE; // at the reserve: no SAM for an SSM
-  run(dt => Sim.aiDefStep(c2, m2, dt), 7); assert.equal(c2.def.sam, cfg.AI.SAM_RESERVE); assert.equal(c2.def.decoy, 3, "decoy deployed vs SSM"); assert.equal(c2.ecm, true);
+  const c2 = mkEn(0), ssm = own(c2, "ssm", 0, 3.5, { uid: 2 }), m2 = [ssm];
+  run(dt => Sim.aiDefStep(c2, m2, dt), 7); assert.equal(c2.def.sam, 15, "SSM also gets a SAM"); assert.equal(c2.def.decoy, 3, "decoy deployed vs SSM inside 4 nm"); assert.equal(c2.ecm, true);
+  const c5 = mkEn(0), s5 = own(c5, "ssm", 0, 8, { uid: 5, aiT: 0 }); c5.def.sam = 0; run(dt => Sim.aiDefStep(c5, [s5], dt), 2); assert.equal(c5.def.decoy, 4, "no decoy beyond 4 nm");
   const c3 = mkEn(0), a3 = own(c3, "asm", 0, 0.5, { uid: 3, aiT: 0 }); c3.def.sam = 0; run(dt => Sim.aiDefStep(c3, [a3], dt), 200); assert.ok(!a3.state, "ASM: no decoy/ECM/CIWS effect");
   const c4 = mkEn(0), s4 = own(c4, "ssm", 0, 0.5, { uid: 4, aiT: 0 }); c4.def.sam = 0; c4.def.decoy = 0; run(dt => Sim.aiDefStep(c4, [s4], dt), 200); assert.ok(s4.state, "SSM at 0.5 nm: CIWS/ECM get it");
   // SAM flight resolves the kill
   Sim.CFG.DEFENSE.SAM.P = 1; run(dt => Sim.aiSamMove(c, ms, dt), 30); assert.equal(asm.state, "dead"); Sim.CFG.DEFENSE.SAM.P = 0.5;
+});
+
+test("horizon cap: radar and ESM detect nothing beyond it (radar 32 nm, ESM x1.3); both work inside", () => {
+  const H = Sim.CFG.RADAR.HORIZON, big = { rcs: 1e9, emit: { range: 500 }, emitting: true };
+  assert.equal(Sim.pDetect(H + 1, big), 0); assert.ok(Sim.pDetect(H - 5, { rcs: 10000 }) > 0.95);
+  assert.equal(Sim.pEsm(H * Sim.CFG.ESM.DUCT + 1, big), 0); assert.ok(Sim.pEsm(H + 5, big) > 0.99);
+  const ship = Sim.newShip(), c = mkAi(H + 5, 500); c.ai.state = "patrol"; c.ai.t = 0; run(dt => Sim.aiStep(c, ship, true, dt), 16); assert.equal(c.ai.tracks, false, "enemy radar also capped");
+  c.y = H - 5; c.ai.t = 0; run(dt => Sim.aiStep(c, ship, true, dt), 12); assert.ok(c.ai.tracks);
 });
