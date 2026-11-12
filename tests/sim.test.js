@@ -411,3 +411,11 @@ test("player SAM reload: second launch refused for 20 s", () => {
   assert.match(Sim.launchSam(ship, ms, 2), /reloading/);
   Sim.ciwsStep(ship, [], 20); assert.equal(Sim.launchSam(ship, ms, 2), "SAM launched.");
 });
+
+test("stepUnit: one movement entry point for human ship, ally and enemy", () => {
+  const s = Sim.newShip(); s.ordSpd = 15; s.ordHdg = 90; run(dt => Sim.stepUnit(s, dt), 60, 1); assert.ok(s.spd > 14 && s.x > 0.1, "human unit follows its orders");
+  const al = Sim.newAlly(15, 0); assert.ok(al.escort && al.ctl === "ai"); s.ordSpd = 0; s.spd = 0; s.x = 0; s.y = 0; s.hdg = 0;
+  run(dt => Sim.stepUnit(al, dt, s), 60, 1); assert.ok(Math.abs(al.x - 15) < 1, "escort holds its slot");
+  const c = Sim.newContact(1, 0, 20, {}); Sim.initEnemy(c, 1); c.ai = Sim.newAi(5, [[0, 30], [10, 30]]); c.hdg = 0; c.spd = 15; run(dt => Sim.stepUnit(c, dt), 120, 1); assert.ok(c.y > 20.3, "AI unit patrols its waypoints");
+  c.sunk = true; run(dt => Sim.stepUnit(c, dt), 30, 1); assert.ok(c.wreck && c.spd === 0, "sunk unit drifts to a wreck");
+});

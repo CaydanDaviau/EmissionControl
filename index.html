@@ -591,7 +591,7 @@ $("dbgR").onclick=()=>{ Sim.resetShip(ship); radar.on=true; missiles.length=0; f
 let last=performance.now();
 function frame(t){
   const rdt=Math.min(0.1,(t-last)/1000); last=t; let sdt=rdt*TS[S.ts]; // rdt = real time (radar), sdt = scaled (ship motion)
-  if(!S.paused){ while(sdt>0){ const h=Math.min(0.5,sdt); Sim.step(ship,h); Sim.allyStep(ally,ship,h); for(const c of contacts) Sim.stepContact(c,h); Sim.stepMissiles(missiles,contacts,h,ship,ally); Sim.stepDefense(ship,missiles,h); for(const c of contacts) Sim.aiSamMove(c,missiles,h); Sim.allySamMove(ally,missiles,h); sdt-=h; }
+  if(!S.paused){ while(sdt>0){ const h=Math.min(0.5,sdt); Sim.stepUnit(ship,h); Sim.stepUnit(ally,h,ship); for(const c of contacts) Sim.stepUnit(c,h); Sim.stepMissiles(missiles,contacts,h,ship,ally); Sim.stepDefense(ship,missiles,h); for(const c of contacts) Sim.aiSamMove(c,missiles,h); Sim.allySamMove(ally,missiles,h); sdt-=h; }
     if(ship.dead[1]){ radar.on=false; for(const c of contacts) c.esm=null; }
     if(emcon()){ ship.def.ecm=false; ship.link=false; } if(ship.dead[1]) ship.link=false;
     for(const c of contacts){ Sim.aiStep(c,ship,radar.on,rdt,ally,contacts); Sim.aiFireStep(c,ship,missiles,rdt,ally,contacts); Sim.aiDefStep(c,missiles,rdt); }

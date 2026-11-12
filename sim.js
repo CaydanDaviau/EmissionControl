@@ -46,8 +46,7 @@
     const f = Math.max(CFG.TURN_MIN, Math.min(1, Math.abs(s.spd) / CFG.TURN_FULL_AT));
     const dh = diff(s.ordHdg, s.hdg), mt = CFG.TURN * f * dt;
     s.hdg = norm(Math.abs(dh) <= mt ? s.ordHdg : s.hdg + Math.sign(dh) * mt);
-    const r = s.hdg * Math.PI / 180, d = s.spd * dt / 3600;
-    s.x += Math.sin(r) * d; s.y += Math.cos(r) * d;
+    advance(s, dt);
     if (s.sunk && s.spd === 0) s.wreck = true; // stopped: permanent wreck
   }
 
@@ -103,21 +102,29 @@
     else if (d < 1) { want = c.hdg; spd = CFG.CRUISE; } // reached the last known position, nothing there
     return { want, spd };
   }
-  function stepContact(c, dt) {
-    const a = c.ai;
-    if (c.sunk) { c.spd = Math.max(0, c.spd - CFG.DAMAGE.DRIFT_DECEL * dt); if (!c.spd) c.wreck = true; } // destroyed: decelerates, no steering, then a wreck
-    else if (c.dead && c.dead[0]) { /* NAVIGATION destroyed: holds last course and speed */ }
-    else if (a && a.state === "inv") { steer(c, a.hb, dt); c.spd = CFG.FLANK; } // investigating: flank along the ESM bearing (no range known)
-    else if (a && a.state && a.state !== "patrol") { const h = huntMove(c, a); steer(c, h.want, dt); c.spd = h.spd; // hunting (id / engage)
-    } else if (a && a.wp) { // patrol: steer to the next waypoint (loop), same turn rate as ships
-      const w = a.wp[a.i], dx = w[0] - c.x, dy = w[1] - c.y;
+  const advance = (u, dt) => { if (!u.spd) return; const r = u.hdg * Math.PI / 180, d = u.spd * dt / 3600; u.x += Math.sin(r) * d; u.y += Math.cos(r) * d; }; // move along the current heading
+  function drift(u, dt) { u.spd = Math.max(0, u.spd - CFG.DAMAGE.DRIFT_DECEL * dt); if (!u.spd) u.wreck = true; } // destroyed: decelerates, no steering, then a wreck
+  function aiOrders(u, ship) { // the AI "controller": returns {want (heading), spd, snap?} or null (hold course/speed). Same for enemies and the ally; u.escort = holds a formation slot beside the player ship while not hunting
+    const a = u.ai, st = a && a.state;
+    if (st === "inv" && !u.escort) return { want: a.hb, spd: CFG.FLANK }; // investigating: flank along the ESM bearing (no range known)
+    if (st === "id" || st === "engage") return huntMove(u, a); // hunting: escort units leave the slot, back in it when they give up (patrol)
+    if (u.escort && ship) { // formation slot CFG.ALLY.OFFSET nm abeam (starboard) of the player ship
+      const r = (ship.hdg + 90) * Math.PI / 180, dx = ship.x + Math.sin(r) * CFG.ALLY.OFFSET - u.x, dy = ship.y + Math.cos(r) * CFG.ALLY.OFFSET - u.y, d = Math.hypot(dx, dy);
+      if (d < 0.2) return { want: ship.hdg, spd: ship.spd, snap: true };
+      return { want: norm(Math.atan2(dx, dy) * 180 / Math.PI), spd: Math.min(CFG.FLANK, Math.max(0, ship.spd) + 20 * d) }; }
+    if (a && a.wp) { // patrol: steer to the next waypoint (loop)
+      const w = a.wp[a.i], dx = w[0] - u.x, dy = w[1] - u.y;
       if (Math.hypot(dx, dy) < CFG.AI.WP_NM) a.i = (a.i + 1) % a.wp.length;
-      steer(c, norm(Math.atan2(dx, dy) * 180 / Math.PI), dt); c.spd = CFG.CRUISE;
-    }
-    if (!c.spd) return;
-    const r = c.hdg * Math.PI / 180, d = c.spd * dt / 3600;
-    c.x += Math.sin(r) * d; c.y += Math.cos(r) * d;
+      return { want: norm(Math.atan2(dx, dy) * 180 / Math.PI), spd: CFG.CRUISE }; }
+    return null; }
+  function stepUnit(u, dt, ship) { // SCALED dt: one movement step for any unit. human = ordered course/speed (accel + speed-dependent turn); ai = orders from aiOrders
+    if (u.ctl === "human") return step(u, dt);
+    if (u.wreck) return;
+    if (u.sunk) { drift(u, dt); if (!u.wreck) advance(u, dt); return; }
+    if (!(u.dead && u.dead[0])) { const o = aiOrders(u, ship); if (o) { if (o.snap) u.hdg = o.want; else steer(u, o.want, dt); u.spd = o.spd; } } // NAVIGATION destroyed: holds last course and speed
+    advance(u, dt);
   }
+  function stepContact(c, dt) { stepUnit(c, dt); }
   // ---- ESM ----
   function newEsm(seed) { return { t: 0, acc: 0, n: 0, seed: seed | 0 }; }
   function gauss(r) { return Math.sqrt(-2 * Math.log(Math.max(rand(r), 1e-12))) * Math.cos(2 * Math.PI * rand(r)); }
@@ -309,19 +316,9 @@
   function reap(missiles, dt) { for (let i = missiles.length - 1; i >= 0; i--) { const m = missiles[i]; if (m.state === "dead" && (m.dieT -= dt) <= 0) missiles.splice(i, 1); } } // real dt
   // ---- LINK, ally, ESM fixes ----
   function toggleLink(ship, emcon) { if (ship.dead[1]) return "Sensors destroyed."; if (emcon) { ship.link = false; return "EMCON active: LINK unavailable."; } ship.link = !ship.link; return "LINK " + (ship.link ? "ON." : "OFF."); } // LINK is an emission: off under EMCON
-  function newAlly(x, y) { return initUnit({ id: "A1", emit: { name: "AN/SPY-1D", range: CFG.RADAR.RANGE }, emitting: false, ai: newAi(99, null), x, y, hdg: 0, spd: 0 }, "blue", "ai", 77); }
+  function newAlly(x, y) { return initUnit({ id: "A1", escort: true, emit: { name: "AN/SPY-1D", range: CFG.RADAR.RANGE }, emitting: false, ai: newAi(99, null), x, y, hdg: 0, spd: 0 }, "blue", "ai", 77); }
   function resetAlly(al, x, y) { al.x = x; al.y = y; al.hdg = 0; al.spd = 0; al.dead = [false, false, false, false]; al.sunk = false; al.wreck = false; al.ecm = false; al.def = newDef(); al.emitting = false; if (al.ai) resetAi(al.ai); }
-  function allyStep(al, ship, dt) { // SCALED dt: holds a slot CFG.ALLY.OFFSET nm abeam (starboard) of our ship; destroyed = drifts to a stop (same rule as ours), then wreck
-    if (al.sunk) { al.spd = Math.max(0, al.spd - CFG.DAMAGE.DRIFT_DECEL * dt); if (al.spd === 0) al.wreck = true; if (al.wreck) return; const q0 = al.hdg * Math.PI / 180, k0 = al.spd * dt / 3600; al.x += Math.sin(q0) * k0; al.y += Math.cos(q0) * k0; return; }
-    const a = al.ai;
-    if (a && (a.state === "id" || a.state === "engage") && !al.dead[0]) { const h = huntMove(al, a); steer(al, h.want, dt); al.spd = h.spd; } // escort, then hunt: once it is identifying/engaging a hostile it leaves the slot and hunts like the enemies; back in the slot when it gives up (patrol)
-    else if (al.dead[0]) { /* NAVIGATION destroyed: holds last course and speed */ }
-    else {
-    const r = (ship.hdg + 90) * Math.PI / 180, dx = ship.x + Math.sin(r) * CFG.ALLY.OFFSET - al.x, dy = ship.y + Math.cos(r) * CFG.ALLY.OFFSET - al.y, d = Math.hypot(dx, dy);
-    if (d < 0.2) { al.hdg = ship.hdg; al.spd = ship.spd; } else { steer(al, norm(Math.atan2(dx, dy) * 180 / Math.PI), dt); al.spd = Math.min(CFG.FLANK, Math.max(0, ship.spd) + 20 * d); }
-    }
-    const q = al.hdg * Math.PI / 180, k = al.spd * dt / 3600; al.x += Math.sin(q) * k; al.y += Math.cos(q) * k;
-  }
+  function allyStep(al, ship, dt) { stepUnit(al, dt, ship); } // the ally = an AI unit with escort:true
   function rays(x1, y1, b1, x2, y2, b2) { // where two bearing rays (deg, north = 0) cross; null if near parallel, behind an observer, or too far
     const a = b1 * Math.PI / 180, c = b2 * Math.PI / 180, ax = Math.sin(a), ay = Math.cos(a), bx = Math.sin(c), by = Math.cos(c), det = bx * ay - ax * by, ex = x2 - x1, ey = y2 - y1;
     if (Math.abs(det) < CFG.FIX.MIN_SIN) return null;
@@ -470,6 +467,6 @@
     if (!tgt) { m.tx = fx.x; m.ty = fx.y; } // fired at a FIX: flies to that point, seeker acquires us if we are within range of it
     missiles.push(m); return m;
   }
-  const api = { toggleLink, newAlly, resetAlly, allyStep, rays, fixStep, aiFixStep, initEnemy, resetEnemy, aiDefStep, aiSamMove, allyDefStep, allySamMove, resetAi, aiIdTime, aiFireStep, newAi, aiStep, ciwsStep, ecmStep, toggleEcm, deployDecoy, launchSam, setCiws, stepDefense, reap, defCheck, CFG, norm, diff, newShip, step, newRadar, newContact, pDetect, radarStep, setTag, stepContact, newEsm, pEsm, esmStep, startIdentify, cancelIdentify, identifyStep, identifyTime, fireCheck, startFire, cancelFire, fireStep, stepMissiles, hitShip, debugMissile, resetShip, STN };
+  const api = { toggleLink, newAlly, resetAlly, allyStep, stepUnit, rays, fixStep, aiFixStep, initEnemy, resetEnemy, aiDefStep, aiSamMove, allyDefStep, allySamMove, resetAi, aiIdTime, aiFireStep, newAi, aiStep, ciwsStep, ecmStep, toggleEcm, deployDecoy, launchSam, setCiws, stepDefense, reap, defCheck, CFG, norm, diff, newShip, step, newRadar, newContact, pDetect, radarStep, setTag, stepContact, newEsm, pEsm, esmStep, startIdentify, cancelIdentify, identifyStep, identifyTime, fireCheck, startFire, cancelFire, fireStep, stepMissiles, hitShip, debugMissile, resetShip, STN };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.Sim = api;
 })(typeof self !== "undefined" ? self : this);
