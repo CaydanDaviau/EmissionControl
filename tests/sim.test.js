@@ -112,7 +112,7 @@ test("damage: SSM never hits NAVIGATION, ASM can; sinks at <=1 station left", ()
 test("sunk ship decelerates to a stop, then is a permanent wreck", () => {
   const s = Sim.newShip(); s.spd = s.ordSpd = 15; s.hdg = s.ordHdg = 90;
   s.rng.seed = 1; s.dead = [false, true, true, false]; do { Sim.hitShip(s, "SSM"); } while (!s.sunk);
-  run(dt => Sim.step(s, dt), 20); assert.ok(s.spd > 10 && !s.wreck, "drifts, not instant");
+  run(dt => Sim.step(s, dt), 5); assert.ok(s.spd > 9 && !s.wreck, "drifts, not instant");
   run(dt => Sim.step(s, dt), 200); assert.ok(s.wreck && s.spd === 0);
   const x = s.x; run(dt => Sim.step(s, dt), 10); assert.equal(s.x, x);
 });

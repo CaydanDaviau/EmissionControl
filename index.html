@@ -85,7 +85,7 @@ tr.sel{background:#2a2f33}
 .dead::after{content:"DESTROYED";display:flex;flex:1;align-items:center;justify-content:center;min-height:240px;color:#ff4a4a;font-size:22px;letter-spacing:3px}
 .navdead #secSpd,.navdead #secHdg{display:none}
 #navDeadSec{display:none;color:#ff4a4a;letter-spacing:2px;text-align:center}.navdead #navDeadSec{display:block}
-#banner{position:fixed;left:0;right:0;bottom:10px;text-align:center;pointer-events:none;z-index:10;color:#ff4a4a;font-weight:bold;font-size:15px;text-shadow:0 0 4px #000;display:none}
+#banner{position:absolute;left:0;right:0;bottom:6px;text-align:center;pointer-events:none;z-index:10;color:#ff4a4a;font-weight:bold;font-size:15px;text-shadow:0 0 4px #000;display:none}
 .ov button.dbg{width:220px;padding:9px;font-size:12px;color:var(--dim);border-style:dashed}
 @media (max-width:760px){
   #navPage{flex-direction:column}
@@ -108,7 +108,7 @@ tr.sel{background:#2a2f33}
     <div id="pages">
       <div class="page active" id="pg0">
         <div id="navPage" style="display:flex;flex:1;min-width:0;min-height:0">
-          <div id="scopeWrap"><canvas id="cv"></canvas></div>
+          <div id="scopeWrap"><canvas id="cv"></canvas><div id="banner"></div></div>
           <div id="side">
             <div class="stRow"><button class="stb" data-d="-1">&lsaquo;</button><button id="tHead">TRACKS: <span id="tcount">0</span> ▾</button><button class="stb" data-d="1">&rsaquo;</button></div>
             <div id="tList"><table>
@@ -195,7 +195,7 @@ tr.sel{background:#2a2f33}
   </div>
 </div>
 <div class="ov show" id="menu"><h1>EMCON</h1><button id="startB">START</button><button id="setB">&#9881; SETTINGS</button><button id="dbgS" class="dbg">DEBUG: SSM AT ME</button><button id="dbgA" class="dbg">DEBUG: ASM AT ME</button><button id="dbgR" class="dbg">DEBUG: REPAIR / RESET</button></div>
-<div id="banner"></div>
+
 <div class="ov" id="settings"><h1>SETTINGS</h1><div class="row"><span class="lbl">Radar sweep</span><button id="sweepB" style="width:100px">On</button></div><button id="backB">BACK</button></div>
 <script src="sim.js"></script>
 <script>
