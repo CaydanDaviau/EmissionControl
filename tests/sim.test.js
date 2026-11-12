@@ -328,3 +328,9 @@ test("fire at a FIX marker still launches after the marker expired (point kept)"
   assert.ok(Sim.startFire(s, 0, fx)); const ms = []; Sim.fireStep(s, [], ms, 6); // marker gone from the list
   assert.equal(ms.length, 1); assert.equal(ms[0].tid, "mk");
 });
+
+test("destroyed contact is dropped from tracking by the radar", () => {
+  const { s, c } = tracked(0, 10); assert.ok(c.tracked); c.sunk = true;
+  const r = Sim.newRadar(1); run(dt => Sim.radarStep(r, s, [c], dt), 10);
+  assert.equal(c.tracked, false); assert.equal(c.q, 0);
+});
