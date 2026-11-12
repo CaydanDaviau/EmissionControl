@@ -95,17 +95,19 @@
     }
   }
   function steer(c, want, dt) { const dh = diff(want, c.hdg), mt = CFG.AI.TURN * dt; c.hdg = norm(Math.abs(dh) <= mt ? want : c.hdg + Math.sign(dh) * mt); }
+  function huntMove(c, a) { // hunting (id / engage): close in at flank, then hold at the edge of its detection (HOLD x radar range); too close = open range, inside the band = circle
+    const dx = a.lx - c.x, dy = a.ly - c.y, d = Math.hypot(dx, dy), hold = CFG.AI.HOLD * c.emit.range, to = norm(Math.atan2(dx, dy) * 180 / Math.PI);
+    let want = to, spd = CFG.FLANK;
+    if (a.tracks) { if (d < hold - CFG.AI.BAND) { want = norm(to + 180); spd = CFG.CRUISE; } else if (d <= hold + CFG.AI.BAND) { want = norm(to + 90); spd = CFG.CRUISE; } }
+    else if (d < 1) { want = c.hdg; spd = CFG.CRUISE; } // reached the last known position, nothing there
+    return { want, spd };
+  }
   function stepContact(c, dt) {
     const a = c.ai;
     if (c.sunk) { c.spd = Math.max(0, c.spd - CFG.DAMAGE.DRIFT_DECEL * dt); if (!c.spd) c.wreck = true; } // destroyed: decelerates, no steering, then a wreck
     else if (c.dead && c.dead[0]) { /* NAVIGATION destroyed: holds last course and speed */ }
     else if (a && a.state === "inv") { steer(c, a.hb, dt); c.spd = CFG.FLANK; } // investigating: flank along the ESM bearing (no range known)
-    else if (a && a.state && a.state !== "patrol") { // hunting (id / engage): close in at flank, then hold at the edge of its detection (HOLD x radar range); too close = open range, inside the band = circle
-      const dx = a.lx - c.x, dy = a.ly - c.y, d = Math.hypot(dx, dy), hold = CFG.AI.HOLD * c.emit.range, to = norm(Math.atan2(dx, dy) * 180 / Math.PI);
-      let want = to, spd = CFG.FLANK;
-      if (a.tracks) { if (d < hold - CFG.AI.BAND) { want = norm(to + 180); spd = CFG.CRUISE; } else if (d <= hold + CFG.AI.BAND) { want = norm(to + 90); spd = CFG.CRUISE; } }
-      else if (d < 1) { want = c.hdg; spd = CFG.CRUISE; } // reached the last known position, nothing there
-      steer(c, want, dt); c.spd = spd;
+    else if (a && a.state && a.state !== "patrol") { const h = huntMove(c, a); steer(c, h.want, dt); c.spd = h.spd; // hunting (id / engage)
     } else if (a && a.wp) { // patrol: steer to the next waypoint (loop), same turn rate as ships
       const w = a.wp[a.i], dx = w[0] - c.x, dy = w[1] - c.y;
       if (Math.hypot(dx, dy) < CFG.AI.WP_NM) a.i = (a.i + 1) % a.wp.length;
@@ -310,8 +312,13 @@
   function resetAlly(al, x, y) { al.x = x; al.y = y; al.hdg = 0; al.spd = 0; al.dead = [false, false, false, false]; al.sunk = false; al.wreck = false; al.ecm = false; al.def = { decoy: CFG.DEFENSE.DECOY.AMMO, sam: CFG.DEFENSE.SAM.AMMO, cd: 0, sams: [] }; al.emitting = false; if (al.ai) resetAi(al.ai); }
   function allyStep(al, ship, dt) { // SCALED dt: holds a slot CFG.ALLY.OFFSET nm abeam (starboard) of our ship; destroyed = drifts to a stop (same rule as ours), then wreck
     if (al.sunk) { al.spd = Math.max(0, al.spd - CFG.DAMAGE.DRIFT_DECEL * dt); if (al.spd === 0) al.wreck = true; if (al.wreck) return; const q0 = al.hdg * Math.PI / 180, k0 = al.spd * dt / 3600; al.x += Math.sin(q0) * k0; al.y += Math.cos(q0) * k0; return; }
+    const a = al.ai;
+    if (a && (a.state === "id" || a.state === "engage") && !al.dead[0]) { const h = huntMove(al, a); steer(al, h.want, dt); al.spd = h.spd; } // escort, then hunt: once it is identifying/engaging a hostile it leaves the slot and hunts like the enemies; back in the slot when it gives up (patrol)
+    else if (al.dead[0]) { /* NAVIGATION destroyed: holds last course and speed */ }
+    else {
     const r = (ship.hdg + 90) * Math.PI / 180, dx = ship.x + Math.sin(r) * CFG.ALLY.OFFSET - al.x, dy = ship.y + Math.cos(r) * CFG.ALLY.OFFSET - al.y, d = Math.hypot(dx, dy);
     if (d < 0.2) { al.hdg = ship.hdg; al.spd = ship.spd; } else { steer(al, norm(Math.atan2(dx, dy) * 180 / Math.PI), dt); al.spd = Math.min(CFG.FLANK, Math.max(0, ship.spd) + 20 * d); }
+    }
     const q = al.hdg * Math.PI / 180, k = al.spd * dt / 3600; al.x += Math.sin(q) * k; al.y += Math.cos(q) * k;
   }
   function rays(x1, y1, b1, x2, y2, b2) { // where two bearing rays (deg, north = 0) cross; null if near parallel, behind an observer, or too far

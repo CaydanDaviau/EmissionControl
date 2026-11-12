@@ -388,3 +388,12 @@ test("enemy defenses engage the ally's missiles; enemy ESM hears the ally's rada
   assert.ok(c.ai.nHear > 0, "enemy hears the ally's radar");
   const f = Sim.aiFireStep(al, s, [], 1, al, []); assert.equal(f, null, "no foes: nothing to fire at");
 });
+
+test("ally escorts, then hunts a hostile it is identifying/engaging, and returns to its slot after giving up", () => {
+  const s = Sim.newShip(), al = Sim.newAlly(15, 0), H = Sim.CFG.AI;
+  run(dt => Sim.allyStep(al, s, dt), 60); const y0 = al.y; assert.ok(Math.abs(al.x - 15) < 1 && Math.abs(y0) < 1, "holds the slot");
+  al.ai.state = "engage"; al.ai.tracks = true; al.ai.lx = 15; al.ai.ly = 80; al.ai.q = 0.9; al.emit.range = 70;
+  run(dt => Sim.allyStep(al, s, dt), 600, 1); assert.ok(al.y > 4, "left the slot toward the hostile"); assert.equal(al.spd, Sim.CFG.FLANK);
+  al.ai.state = "patrol"; al.ai.tracks = false; run(dt => Sim.allyStep(al, s, dt), 3000, 1); assert.ok(Math.hypot(al.x - 15, al.y) < 1, "back in the slot");
+  const d = Sim.newAlly(15, 0); d.dead[0] = true; d.hdg = 90; d.spd = 10; d.ai.state = "engage"; d.ai.tracks = true; d.ai.lx = 0; d.ai.ly = 80; Sim.allyStep(d, s, 1); assert.equal(d.hdg, 90, "NAV destroyed holds course");
+});
