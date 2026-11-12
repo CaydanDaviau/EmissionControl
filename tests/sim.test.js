@@ -322,3 +322,9 @@ test("AI: linked enemies cross ESM bearings on us -> shared fix; fires at it whe
   const lost = { uid: 2, side: "enemy", w: "ssm", tid: "own", x: 0, y: 19.9, hdg: 0, spd: 480, fuel: 99, tx: 0, ty: 20 }; ship.y = 100; const l = [lost]; Sim.stepMissiles(l, [], 0.1, ship); assert.equal(l.length, 0, "reached the fix, no ship near: lost"); assert.ok(/MISSED/.test(ship.hitMsg));
   const hit = { uid: 3, side: "enemy", w: "ssm", tid: "own", x: 0, y: 36, hdg: 0, spd: 480, fuel: 99, tx: 0, ty: 20 }; ship.y = 40; Sim.stepMissiles([hit], [], 0.1, ship); assert.equal(hit.tx, undefined, "ship within 5 nm: seeker acquired it");
 });
+
+test("fire at a FIX marker still launches after the marker expired (point kept)", () => {
+  const s = Sim.newShip(), c = mkEn(30), fx = { id: "F1", marker: true, tracked: true, seen: true, px: c.x, py: c.y };
+  assert.ok(Sim.startFire(s, 0, fx)); const ms = []; Sim.fireStep(s, [], ms, 6); // marker gone from the list
+  assert.equal(ms.length, 1); assert.equal(ms[0].tid, "mk");
+});
