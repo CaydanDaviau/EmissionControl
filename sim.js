@@ -283,7 +283,8 @@
   function aiStep(c, ship, radarOn, dt) {
     const a = c.ai, A = CFG.AI; if (!a) return;
     a.t += dt; a.sw += dt; a.es += dt;
-    c.emitting = a.state !== "patrol" || (a.t % A.DUTY_PERIOD) < A.DUTY_ON; // patrol: duty-cycled radar; hunting: radar stays on (aggressive)
+    c.emitting = (a.state === "id" && a.tracks) || (a.t % A.DUTY_PERIOD) < A.DUTY_ON; // 20/60 duty cycle always (also in combat); exception: while identifying an unknown it holds a track, radar stays ON until identified or the contact is lost
+
     const dx = ship.x - c.x, dy = ship.y - c.y, d = Math.hypot(dx, dy);
     if (c.emitting) { // radar: one roll per sweep period, same model as ours
       while (a.sw >= A.SWEEP) { a.sw -= A.SWEEP;

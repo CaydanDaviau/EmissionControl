@@ -179,7 +179,7 @@ const mkAi = (range, emitRange) => { const c = mk(0, range, { side: "enemy", spe
 test("AI identifies us (needs a continuous track), then engages when we are hostile and keeps radar on", () => {
   const ship = Sim.newShip(), c = mkAi(50); let sawId = false;
   run(dt => { Sim.aiStep(c, ship, true, dt); if (c.ai.state === "id") sawId = true; }, 300);
-  assert.ok(sawId, "went through the id state"); assert.equal(c.ai.known, "host"); assert.equal(c.ai.state, "engage"); assert.equal(c.emitting, true);
+  assert.ok(sawId, "went through the id state"); assert.equal(c.ai.known, "host"); assert.equal(c.ai.state, "engage");
 });
 test("AI identifies a neutral and goes back to patrol; does not re-identify it", () => {
   const ship = Sim.newShip(); ship.rel = "neutral"; const c = mkAi(50);
@@ -200,4 +200,14 @@ test("hunting AI closes at flank when far, opens range when too close, circles i
   const near = mkAi(20); near.hdg = 180; near.ai.state = "engage"; near.ai.tracks = true; near.ai.lx = 0; near.ai.ly = 0;
   run(dt => Sim.stepContact(near, dt), 3600, 1); assert.ok(Math.hypot(near.x, near.y) > 30, "opened range from 20 nm");
   const mid = mkAi(hold); mid.ai.state = "id"; mid.ai.tracks = true; Sim.stepContact(mid, 1); assert.equal(mid.spd, Sim.CFG.CRUISE, "cruise in the band");
+});
+
+test("AI radar: always 20/60 duty, except ON while identifying a held track; back to duty after identification", () => {
+  const ship = Sim.newShip(), c = mkAi(50); const A = Sim.CFG.AI;
+  c.ai.state = "id"; c.ai.tracks = true; c.ai.q = 0.9; c.ai.t = A.DUTY_ON + 5; // duty window is OFF here
+  Sim.aiStep(c, ship, true, 0.1); assert.equal(c.emitting, true, "identifying with a track: radar on despite duty off");
+  c.ai.tracks = false; c.ai.q = 0; ship.x = 9999; Sim.aiStep(c, ship, true, 0.1); assert.equal(c.emitting, (c.ai.t % A.DUTY_PERIOD) < A.DUTY_ON, "contact lost: duty cycle");
+  const e = mkAi(50); e.ai.state = "engage"; e.ai.known = "host"; e.ai.tracks = true; e.ai.q = 0.9; e.ai.t = A.DUTY_ON + 5;
+  Sim.aiStep(e, Sim.newShip(), true, 0.1); assert.equal(e.emitting, false, "engage: duty cycle applies");
+  e.ai.t = 10; Sim.aiStep(e, Sim.newShip(), true, 0.1); assert.equal(e.emitting, true, "engage: on in the duty window");
 });
