@@ -233,7 +233,7 @@ const TS=[1,5,20];
 const ship=Sim.newShip();
 const LAT0=41+11.295/60, LON0=21+26.496/60;
 const EDGE=0.97*1.23*(Math.sqrt(Sim.CFG.RADAR.H_ANT)+Math.sqrt(60)); // our radar detection edge (horizon-limited) for a default contact
-const contacts=[ (()=>{ const c=Sim.newContact(1,0,EDGE,{side:"enemy",speed:15,emit:{name:"Type 346B",range:35}}), R=EDGE; // straight north, on the detection edge
+const contacts=[ (()=>{ const c=Sim.newContact(1,0,EDGE,{side:"enemy",speed:15,emit:{name:"Type 346B",range:70}}), R=EDGE; // straight north, on the detection edge
   c.ai=Sim.newAi(20261114,[[10,R+2],[10,R+14],[-10,R+14],[-10,R+2]]); c.hdg=90; return c; })() ];
 const missiles=[]; // own missiles in flight
 const radar=Sim.newRadar(20261111), esm=Sim.newEsm(20261112);

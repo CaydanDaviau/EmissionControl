@@ -2,12 +2,12 @@ const test = require("node:test"), assert = require("node:assert/strict"), Sim =
 const run = (fn, secs, dt = 0.1) => { for (let i = 0; i < secs / dt; i++) fn(dt); };
 const mk = (b, r, o) => Sim.newContact(1, b, r, o);
 
-test("ESM hears an emitter beyond radar horizon, within duct cap; not beyond cap", () => {
+test("ESM hears an emitter at 26 nm (no horizon cap); not one far beyond 2x its radar range", () => {
   const ship = Sim.newShip(), esm = Sim.newEsm(1);
-  const near = mk(0, 26, { emit: { name: "X", range: 35 } }), far = mk(90, 35, { emit: { name: "X", range: 35 } });
+  const near = mk(0, 26, { emit: { name: "X", range: 35 } }), far = mk(90, 200, { emit: { name: "X", range: 35 } });
   run(dt => Sim.esmStep(esm, ship, [near, far], dt), 60);
-  assert.ok(near.esm, "26 nm heard"); assert.equal(far.esm, null, "35 nm beyond cap");
-  assert.ok(Math.abs(Sim.diff(near.esm.brg, 0)) < 10);
+  assert.ok(near.esm, "26 nm heard"); assert.equal(far.esm, null, "200 nm out of ESM range");
+  assert.ok(Math.abs(Sim.diff(near.esm.brg, 0)) < 35, "bearing within ~3 sigma (sigma 10)");
 });
 test("silent emitter is not heard; esm expires after HOLD", () => {
   const ship = Sim.newShip(), esm = Sim.newEsm(2), c = mk(0, 20, { emit: { name: "X", range: 35 } });
@@ -156,15 +156,12 @@ test("enemy ESM hears our jamming even with radar off; EMCON refuses and forces 
   assert.equal(Sim.toggleEcm(ship, true), "EMCON active: jamming unavailable."); assert.equal(ship.def.ecm, false);
   assert.ok(/ON/.test(Sim.toggleEcm(ship, false)) && ship.def.ecm, "can turn on without EMCON");
 });
-test("enemy radar range from our enlarged cross section is ~55 nm", () => {
-  const A = Sim.CFG.AI, rd = 35 * Math.pow(A.SHIP_RCS / Sim.CFG.RADAR.RCS_REF, 0.25);
-  assert.ok(rd > 50 && rd < 60, "R_det " + rd.toFixed(1));
-});
-test("enemy radar tracks us at 45 nm (no horizon cap), not at 90 nm", () => {
-  const near = Sim.newShip(), c1 = mk(0, 45, { side: "enemy", emit: { name: "X", range: 35 } }), c2 = mk(0, 90, { side: "enemy", emit: { name: "X", range: 35 } });
+test("enemy radar equals ours: same range and same RCS for our ship", () => {
+  const A = Sim.CFG.AI; assert.equal(A.SHIP_RCS, Sim.CFG.RADAR.RCS_REF); assert.equal(A.SWEEP, Sim.CFG.RADAR.PERIOD);
+  const near = Sim.newShip(), c1 = mk(0, 60, { side: "enemy", emit: { name: "X", range: Sim.CFG.RADAR.RANGE } }), c2 = mk(0, 150, { side: "enemy", emit: { name: "X", range: Sim.CFG.RADAR.RANGE } });
   c1.ai = Sim.newAi(7, null); c2.ai = Sim.newAi(7, null);
   run(dt => { Sim.aiStep(c1, near, true, dt); Sim.aiStep(c2, near, true, dt); }, 120);
-  assert.ok(c1.ai.dist !== undefined, "45 nm detected"); assert.equal(c2.ai.dist, undefined, "90 nm never detected");
+  assert.ok(c1.ai.dist !== undefined, "60 nm detected"); assert.equal(c2.ai.dist, undefined, "150 nm never detected");
 });
 
 test("our radar has no horizon cap: sees a normal contact at 50 nm, a small one (rcs 100) not", () => {
