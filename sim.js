@@ -70,8 +70,7 @@
       seen: false, tracked: false, q: 0, px: 0, py: 0, lastHit: -1e9 };
   }
   function pDetect(d, c) {
-    const R = CFG.RADAR, hor = 1.23 * (Math.sqrt(R.H_ANT) + Math.sqrt(c.h));
-    if (d > hor) return 0;
+    const R = CFG.RADAR; // no radar horizon for now (user's choice, sea-skimmers dropped): detection depends on RCS and range only
     const rd = R.RANGE * Math.pow(c.rcs / R.RCS_REF, 0.25);
     return 1 / (1 + Math.exp(-(rd - d) / (0.15 * rd)));
   }
@@ -280,7 +279,7 @@
     const dx = ship.x - c.x, dy = ship.y - c.y, d = Math.hypot(dx, dy);
     if (c.emitting) { // radar: one roll per sweep period, same model as ours
       while (a.sw >= A.SWEEP) { a.sw -= A.SWEEP;
-        const rd = c.emit.range * Math.pow(A.SHIP_RCS / CFG.RADAR.RCS_REF, 0.25); // enemy radar has NO horizon cap (user's choice): range comes from cross section only
+        const rd = c.emit.range * Math.pow(A.SHIP_RCS / CFG.RADAR.RCS_REF, 0.25); // no horizon cap (same rule as our radar): range comes from cross section only
         const p = 1 / (1 + Math.exp(-(rd - d) / (0.15 * rd)));
         if (rand(a) < p) { a.q += (1 - a.q) * CFG.RADAR.Q_HIT; a.tracks = true; a.dist = d; a.brg = norm(Math.atan2(dx, dy) * 180 / Math.PI); }
         else if (a.tracks) { a.q -= CFG.RADAR.Q_MISS; }

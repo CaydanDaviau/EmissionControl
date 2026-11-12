@@ -376,7 +376,7 @@ const SENSORS=[ // add new sensors here; each row shows name, model and live sta
   {name:"ESM",model:"AN/SLQ-32",state:()=>"PASSIVE"} ];
 function sensUi(){
   const eb=$("emconB"); eb.textContent=radar.on?"EMCON OFF  \u00b7  RADAR EMITTING":"EMCON ON  \u00b7  RADAR SILENT"; eb.classList.toggle("on",!radar.on);
-  $("emNote").textContent=radar.on?"Radar on: you can track radar contacts, but enemy ESM can hear you from beyond your radar horizon."
+  $("emNote").textContent=radar.on?"Radar on: you can track radar contacts, but enemy ESM can hear you from far away."
     :"Radar off: enemy ESM cannot hear you, but you are blind to radar contacts and existing tracks fade out.";
   $("sensList").innerHTML=SENSORS.map(x=>`<div class="srow"><span class="n">${x.name}</span><span>${x.model}</span><span class="s">${x.state()}</span></div>`).join("");
   const L=contacts.filter(c=>c.esm).sort((a,b)=>a.esmNo-b.esmNo);

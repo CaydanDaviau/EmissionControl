@@ -14,7 +14,7 @@ test("silent emitter is not heard; esm expires after HOLD", () => {
   run(dt => Sim.esmStep(esm, ship, [c], dt), 30); assert.ok(c.esm);
   c.emitting = false; run(dt => Sim.esmStep(esm, ship, [c], dt), 20); assert.equal(c.esm, null);
 });
-test("radar sees at 20 nm only inside horizon; EMCON (radar.on=false) blinds and tracks fade", () => {
+test("radar sees a contact; EMCON (radar.on=false) blinds and tracks fade", () => {
   const ship = Sim.newShip(), radar = Sim.newRadar(3), c = mk(0, 15);
   run(dt => Sim.radarStep(radar, ship, [c], dt), 60); assert.ok(c.tracked);
   radar.on = false; run(dt => Sim.radarStep(radar, ship, [c], dt), 90);
@@ -156,13 +156,19 @@ test("enemy ESM hears our jamming even with radar off; EMCON refuses and forces 
   assert.equal(Sim.toggleEcm(ship, true), "EMCON active: jamming unavailable."); assert.equal(ship.def.ecm, false);
   assert.ok(/ON/.test(Sim.toggleEcm(ship, false)) && ship.def.ecm, "can turn on without EMCON");
 });
-test("enemy radar detects our enlarged cross section at ~50 nm when above the horizon cap", () => {
+test("enemy radar range from our enlarged cross section is ~55 nm", () => {
   const A = Sim.CFG.AI, rd = 35 * Math.pow(A.SHIP_RCS / Sim.CFG.RADAR.RCS_REF, 0.25);
   assert.ok(rd > 50 && rd < 60, "R_det " + rd.toFixed(1));
 });
-test("enemy radar tracks us at 45 nm (no horizon cap for the enemy), not at 90 nm", () => {
+test("enemy radar tracks us at 45 nm (no horizon cap), not at 90 nm", () => {
   const near = Sim.newShip(), c1 = mk(0, 45, { side: "enemy", emit: { name: "X", range: 35 } }), c2 = mk(0, 90, { side: "enemy", emit: { name: "X", range: 35 } });
   c1.ai = Sim.newAi(7, null); c2.ai = Sim.newAi(7, null);
   run(dt => { Sim.aiStep(c1, near, true, dt); Sim.aiStep(c2, near, true, dt); }, 120);
   assert.ok(c1.ai.dist !== undefined, "45 nm detected"); assert.equal(c2.ai.dist, undefined, "90 nm never detected");
+});
+
+test("our radar has no horizon cap: sees a normal contact at 50 nm, a small one (rcs 100) not", () => {
+  const ship = Sim.newShip(), radar = Sim.newRadar(11), big = mk(0, 50), small = Sim.newContact(2, 90, 50, { rcs: 100 });
+  run(dt => Sim.radarStep(radar, ship, [big, small], dt), 80);
+  assert.ok(big.tracked, "50 nm tracked"); assert.equal(small.seen, false, "rcs 100 at 50 nm never seen");
 });
