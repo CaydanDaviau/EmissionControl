@@ -594,7 +594,8 @@ function frame(t){
   if(!S.paused){ while(sdt>0){ const h=Math.min(0.5,sdt); Sim.step(ship,h); Sim.allyStep(ally,ship,h); for(const c of contacts) Sim.stepContact(c,h); Sim.stepMissiles(missiles,contacts,h,ship,ally); Sim.stepDefense(ship,missiles,h); for(const c of contacts) Sim.aiSamMove(c,missiles,h); Sim.allySamMove(ally,missiles,h); sdt-=h; }
     if(ship.dead[1]){ radar.on=false; for(const c of contacts) c.esm=null; }
     if(emcon()){ ship.def.ecm=false; ship.link=false; } if(ship.dead[1]) ship.link=false;
-    for(const c of contacts){ Sim.aiStep(c,ship,radar.on,rdt,ally); Sim.aiFireStep(c,ship,missiles,rdt,ally); Sim.aiDefStep(c,missiles,rdt); }
+    for(const c of contacts){ Sim.aiStep(c,ship,radar.on,rdt,ally,contacts); Sim.aiFireStep(c,ship,missiles,rdt,ally,contacts); Sim.aiDefStep(c,missiles,rdt); }
+    Sim.aiStep(ally,ship,radar.on,rdt,ally,contacts); Sim.aiFireStep(ally,ship,missiles,rdt,ally,contacts); // the ally runs the same AI as the enemies (team blue): radar duty cycle, ESM, tracks, fires at hostile contacts
     Sim.allyDefStep(ally,missiles,rdt); // sensors destroyed: radar dead, ESM deaf
     Sim.radarStep(radar,ship,contacts,rdt); if(!ship.dead[1]) Sim.esmStep(esm,ship,contacts,rdt); if(ship.link&&!ship.dead[1]&&!ally.dead[1]) Sim.esmStep(esmA,ally,contacts,rdt,"esmA"); else for(const c of contacts) c.esmA=null; Sim.fixStep(fixes,ship,ally,contacts,esm,esmA,rdt); Sim.aiFixStep(contacts,rdt); Sim.identifyStep(contacts,rdt,radar.on,ship); Sim.fireStep(ship,all(),missiles,rdt); Sim.reap(missiles,rdt); Sim.ecmStep(ship,missiles,rdt); Sim.ciwsStep(ship,missiles,rdt); } // sensors run in real time
   blink=Math.floor(t/300)%2; S.lock=!ship.wreck&&missiles.some(m=>m.tid==="own"&&!m.state); // enemy missile aimed at us
@@ -605,8 +606,8 @@ function frame(t){
   hud(); draw(); if(stIdx===1) identPanel(); if(stIdx===2) wpnPanel(); if(stIdx===3) defPanel(); requestAnimationFrame(frame);
 }
 $("sensPage").insertAdjacentHTML("beforeend",'<div class="note" id="aiDbg" style="border-top:1px dashed #555;margin-top:8px;padding-top:6px"></div>');
-function aiDbg(){ $("aiDbg").innerHTML=contacts.map(dbgOne).join("<hr>"); }
-function dbgOne(c){ const a=c.ai; return "DEBUG ENEMY "+c.id+(a.fix?" · FIX known"+(a.fix.host?" (hostile)":""):"")+"<br>Radar: "+(c.emitting?"ON":"off")+" ("+Math.round(a.t%60)+"/60 s)<br>Tracks you: "+(a.tracks?Math.round(a.q*100)+"%":"no")+"<br>Hears your radar: "+(a.hears?"yes, BRG "+pad3(a.hears.brg):"no")+"<br>Range: "+Math.hypot(c.x-ship.x,c.y-ship.y).toFixed(1)+" nm<br>State: "+a.state+(a.known?" ("+a.known+")":"")+(a.state==="id"?" \u00b7 ID "+Math.round(a.idp*100)+"%":"")+(a.state==="inv"?" \u00b7 BRG "+pad3(a.hb):"")+"<br>Next launch in: "+Math.ceil(a.cd)+" s · SSM "+a.ammo.ssm+" · ASM "+a.ammo.asm+"<br>Stations: "+["NAV","SENS","WPN","DEF"].map((n,i)=>n+(c.dead[i]?" X":" ok")).join(" · ")+(c.sunk?" · DESTROYED":"")+"<br>Defense: SAM "+c.def.sam+" · decoy "+c.def.decoy+(c.ecm?" · ECM":""); }
+function aiDbg(){ $("aiDbg").innerHTML=contacts.map(c=>dbgOne(c)).concat([dbgOne(ally,"ALLY A1")]).join("<hr>"); }
+function dbgOne(c,lb){ const a=c.ai; return "DEBUG "+(lb||"ENEMY "+c.id)+(a.fix?" · FIX known"+(a.fix.host?" (hostile)":""):"")+"<br>Radar: "+(c.emitting?"ON":"off")+" ("+Math.round(a.t%60)+"/60 s)<br>Primary track: "+(a.tracks?Math.round(a.q*100)+"%":"no")+"<br>Hears emitters: "+(a.hears?"yes, BRG "+pad3(a.hears.brg):"no")+"<br>Range: "+Math.hypot(c.x-ship.x,c.y-ship.y).toFixed(1)+" nm<br>State: "+a.state+(a.known?" ("+a.known+")":"")+(a.state==="id"?" \u00b7 ID "+Math.round(a.idp*100)+"%":"")+(a.state==="inv"?" \u00b7 BRG "+pad3(a.hb):"")+"<br>Next launch in: "+Math.ceil(a.cd)+" s · SSM "+a.ammo.ssm+" · ASM "+a.ammo.asm+"<br>Stations: "+["NAV","SENS","WPN","DEF"].map((n,i)=>n+(c.dead[i]?" X":" ok")).join(" · ")+(c.sunk?" · DESTROYED":"")+"<br>Defense: SAM "+c.def.sam+" · decoy "+c.def.decoy+(c.ecm?" · ECM":""); }
 setInterval(()=>{aiDbg();fillTable();sensUi();wpnList();defList();applyDmg();},500);
 resize(); ui(); sensUi(); identPanel(); wpnList(); wpnPanel(); defList(); defPanel(); requestAnimationFrame(frame);
 </script>

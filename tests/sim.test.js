@@ -350,9 +350,9 @@ test("enemy missile at the ally hits it with the same station rules; sunk ally d
 test("enemy tracks the ally with its radar and fires at it when engaged; not at a destroyed ally", () => {
   const s = Sim.newShip(), al = Sim.newAlly(0, 30), c = mkEn(60); c.x = 0; c.y = 0; s.x = 0; s.y = -90; // we are far out of reach, the ally is 30 nm away
   c.ai.state = "engage"; c.ai.known = "host"; c.ai.t = 0;
-  run(dt => { Sim.aiStep(c, s, true, dt, al); }, 30); assert.ok(c.ai.tra && c.ai.qa > Sim.CFG.AI.FIRE_Q, "solid track on the ally");
+  run(dt => { Sim.aiStep(c, s, true, dt, al); }, 30); assert.ok(c.ai.fr.A1 && c.ai.fr.A1.tracks && c.ai.fr.A1.q > Sim.CFG.AI.FIRE_Q, "solid track on the ally");
   const m = Sim.aiFireStep(c, s, [], 0, al); assert.ok(m && m.tid === "A1" && m.side === "enemy", "fires at the ally");
-  al.sunk = true; c.ai.cd = 0; run(dt => Sim.aiStep(c, s, true, dt, al), 5); assert.ok(!c.ai.tra); assert.equal(Sim.aiFireStep(c, s, [], 0, al), null);
+  al.sunk = true; c.ai.cd = 0; run(dt => Sim.aiStep(c, s, true, dt, al), 5); assert.ok(!c.ai.fr.A1); assert.equal(Sim.aiFireStep(c, s, [], 0, al), null);
 });
 
 // ---- ally defends itself ----
@@ -366,4 +366,25 @@ test("ally SAMs an ASM aimed at it, decoys an SSM only inside range; destroyed D
   Sim.allyDefStep(al2, m2, 0.1); assert.equal(al2.def.decoy, S.DECOY.AMMO, "no decoy beyond 4 nm");
   const al3 = Sim.newAlly(0, 0); al3.dead[3] = true; const m3 = [{ uid: 3, n: 3, side: "enemy", w: "asm", tid: "A1", x: 0, y: 20, hdg: 180, spd: 500, fuel: 100 }];
   run(dt => Sim.allyDefStep(al3, m3, dt), 10, 0.1); assert.equal(al3.def.sam, S.SAM.AMMO, "dead DEFENSE: no SAM");
+});
+
+// ---- team-agnostic AI: the ally runs the same AI against the enemy team ----
+test("ally AI tracks an enemy, identifies it, fires, and the missile damages it", () => {
+  const s = Sim.newShip(), al = Sim.newAlly(0, 0), c = mkEn(30); c.x = 0; c.y = 30; c.ai.t = 0; al.ai.t = 0; s.x = 0; s.y = -90;
+  const ms = [], P = Sim.CFG.WEAPON; let fired = null;
+  run(dt => { Sim.aiStep(al, s, true, dt, al, [c]); fired = fired || Sim.aiFireStep(al, s, ms, dt, al, [c]); }, 200);
+  assert.equal(al.ai.known, "host", "ally identified the enemy as hostile"); assert.ok(fired, "ally fired");
+  assert.equal(fired.side, "ally"); assert.equal(fired.tid, c.id); assert.ok(/^A\d/.test(fired.lbl));
+  const sp = Sim.CFG.DAMAGE.P_HIT; Sim.CFG.DAMAGE.P_HIT = 1; c.rng.seed = 5;
+  run(dt => Sim.stepMissiles(ms, [c], dt, s, al), 600, 1); Sim.CFG.DAMAGE.P_HIT = sp;
+  assert.ok(c.dead.some(Boolean), "enemy lost a station"); assert.ok(/> TRK/.test(s.strikeMsg), s.strikeMsg);
+});
+test("enemy defenses engage the ally's missiles; enemy ESM hears the ally's radar; no friendly fire", () => {
+  const al = Sim.newAlly(0, 0), c = mkEn(20), s = Sim.newShip(); c.x = 0; c.y = 20; c.ai.t = 0;
+  const m = { uid: 9, n: 1, lbl: "A1", side: "ally", w: "asm", tid: c.id, x: 0, y: 5, hdg: 0, spd: 500, fuel: 100 }, SP = Sim.CFG.DEFENSE.SAM.P; Sim.CFG.DEFENSE.SAM.P = 1;
+  run(dt => { Sim.aiDefStep(c, [m], dt); Sim.aiSamMove(c, [m], dt); }, 90, 0.1); Sim.CFG.DEFENSE.SAM.P = SP;
+  assert.equal(m.state, "dead", "enemy SAM kills the ally's ASM");
+  al.ai.t = 0; run(dt => { Sim.aiStep(al, s, false, dt, al, [c]); Sim.aiStep(c, s, false, dt, al, [c]); }, 120); // ship radar silent: only the ally emits
+  assert.ok(c.ai.nHear > 0, "enemy hears the ally's radar");
+  const f = Sim.aiFireStep(al, s, [], 1, al, []); assert.equal(f, null, "no foes: nothing to fire at");
 });
