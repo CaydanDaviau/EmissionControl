@@ -72,3 +72,28 @@ test("identify time grows with range and for low-RCS contacts", () => {
   assert.ok(tf > tn && ts > tn, [tn, tf, ts].join());
   assert.ok(Math.abs(Sim.identifyTime(mk(0, 10), ship) - Sim.CFG.IDENTIFY.TIME) < 1e-9, "20 s at 10 nm, normal RCS");
 });
+
+// ---- weapons (SSM launch) ----
+const tracked = (b, r, o) => { const s = Sim.newShip(), rd = Sim.newRadar(7), c = mk(b, r, o); run(dt => Sim.radarStep(rd, s, [c], dt), 60); return { s, c, rd }; };
+test("fire: 5 s countdown, then launch uses one ammo and spawns a missile", () => {
+  const { s, c } = tracked(0, 10), ms = []; assert.ok(c.tracked);
+  assert.equal(Sim.fireCheck(s, null, c), "Select a weapon.");
+  assert.ok(Sim.startFire(s, 0, c));
+  run(dt => Sim.fireStep(s, [c], ms, dt), 4); assert.equal(ms.length, 0); assert.equal(s.loadout[0].ammo, 8);
+  run(dt => Sim.fireStep(s, [c], ms, dt), 1.5); assert.equal(ms.length, 1); assert.equal(s.loadout[0].ammo, 7); assert.equal(s.fire, null);
+});
+test("fire: aborts on lost track, out of range, manual cancel; blocked with no ammo", () => {
+  let { s, c } = tracked(0, 10), ms = [];
+  Sim.startFire(s, 0, c); c.tracked = false; Sim.fireStep(s, [c], ms, 0.1);
+  assert.ok(!s.fire && /not tracked/.test(s.fireMsg) && s.loadout[0].ammo === 8);
+  c.tracked = true; Sim.startFire(s, 0, c); c.px = 0; c.py = 80; Sim.fireStep(s, [c], ms, 0.1);
+  assert.ok(!s.fire && /Out of range/.test(s.fireMsg));
+  c.py = 10; Sim.startFire(s, 0, c); Sim.cancelFire(s); assert.equal(s.fire, null);
+  s.loadout[0].ammo = 0; assert.equal(Sim.startFire(s, 0, c), false); assert.equal(Sim.fireCheck(s, 0, c), "No ammo.");
+});
+test("missile curves toward the last known position and ends there; ammo/ids tracked", () => {
+  const { s, c } = tracked(90, 12), ms = []; s.hdg = 0;
+  Sim.startFire(s, 0, c); run(dt => Sim.fireStep(s, [c], ms, dt), 6); const m = ms[0];
+  assert.equal(m.n, 1); const h0 = m.hdg; run(dt => Sim.stepMissiles(ms, [c], dt), 2); assert.ok(m.hdg > h0, "turns toward east");
+  run(dt => Sim.stepMissiles(ms, [c], dt), 300); assert.equal(ms.length, 0, "arrived and removed");
+});

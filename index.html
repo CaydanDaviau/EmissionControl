@@ -24,20 +24,25 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--text);
 .stb:first-child{border-right:1px solid var(--line-dim)}.stb:last-child{border-left:1px solid var(--line-dim)}
 .stc{flex:1;text-align:center;align-self:center;color:var(--dim);letter-spacing:2px}
 .page.pl{flex-direction:column}
-#top,#side,#sensPage,.page.pl{zoom:.8}
+#top,#side,#sensPage,#wpnPage,.page.pl{zoom:.8}
 #pages{flex:1;min-width:0;display:flex;min-height:0}
 .page{flex:1;display:none;min-height:0;min-width:0}
 .page.active{display:flex}
 #navPage{flex-direction:row}
-#sensPage{flex:1;overflow-y:auto;touch-action:pan-y;background:var(--panel);max-width:560px}
-#sensPage .stRow{position:sticky;top:0;z-index:3}
+#sensPage,#wpnPage{flex:1;overflow-y:auto;touch-action:pan-y;background:var(--panel);max-width:560px}
+#sensPage .stRow,#wpnPage .stRow{position:sticky;top:0;z-index:3}
 .note{color:var(--dim);font-size:12px;line-height:1.4;margin-top:6px}
 .srow{display:flex;gap:10px;padding:5px 0}.srow .n{min-width:52px;color:var(--dim)}.srow .s{margin-left:auto}
 .bar{height:6px;background:#1a1d1f;border:1px solid var(--line-dim);margin:8px 0 2px}
 .bar i{display:block;height:100%;width:0;background:#3fbf8a}
-#idList{max-height:150px;overflow-y:auto;touch-action:pan-y;margin-bottom:6px;border:1px solid var(--line-dim)}
+#idList,.lst{max-height:150px;overflow-y:auto;touch-action:pan-y;margin-bottom:6px;border:1px solid var(--line-dim)}
 .idr{display:flex;gap:12px;padding:7px 6px}.idr .s{margin-left:auto;color:var(--dim)}.idr.sel{background:#2a2f33}.idr.lost{opacity:.45}
 .idr.unk span:first-child{color:var(--unk)}.idr.ally span:first-child{color:#4da3ff}.idr.host span:first-child{color:#ff4a4a}
+.wr{display:flex;gap:12px;padding:8px 6px}.wr.sel{background:#2a2f33}.wr .s{margin-left:auto}
+.am{color:#2fd46b}
+.hz{padding:7px;margin-top:8px;background:repeating-linear-gradient(-45deg,#ffd000 0 9px,#111 9px 18px)}
+.hz button{display:block;width:100%;background:#000;border:3px solid #fff;color:#fff;font-size:18px;padding:12px 0;letter-spacing:2px}
+.hz button:active{background:#222}.hz button:disabled{opacity:.5}.hz button.cd{color:#ffd83a}
 .esmr{padding:5px 0;color:#b388ff}.esmr .d{color:var(--dim);font-size:12px}
 #scopeWrap{flex:1;position:relative;min-width:0;min-height:180px}
 canvas{position:absolute;inset:0;width:100%;height:100%}
@@ -167,6 +172,18 @@ tr.sel{background:#2a2f33}
           <div class="sec"><h5>ESM CONTACTS</h5><div id="esmList"></div></div>
         </div>
       </div>
+      <div class="page" id="pg2">
+        <div id="wpnPage">
+          <div class="stRow"><button class="stb" data-d="-1">&lsaquo;</button><div class="stc">WEAPONS</div><button class="stb" data-d="1">&rsaquo;</button></div>
+          <div class="sec"><h5>TARGET</h5><div id="wtList" class="lst"></div><div id="wtInfo" class="note" style="margin:0">No contact selected</div></div>
+          <div class="sec"><h5>WEAPON</h5><div id="wList" class="lst"></div></div>
+          <div class="sec">
+            <div class="hz"><button id="fireB">FIRE</button></div>
+            <div class="note" id="fireNote"></div><div class="note" id="fireMsg" style="color:#ffd83a"></div>
+          </div>
+          <div class="sec"><h5>IN FLIGHT</h5><div id="mList"></div></div>
+        </div>
+      </div>
     </div>
   </div>
 </div>
@@ -181,7 +198,7 @@ const pad3=n=>String(Math.round(n)).padStart(3,"0");
 // ---- stations (tabs) ----
 const STATIONS=["NAVIGATION","SENSORS","WEAPONS","DEFENSE"];
 let stIdx=0;
-STATIONS.forEach((n,i)=>{ if(i<=1) return;
+STATIONS.forEach((n,i)=>{ if(i<=2) return;
   const d=document.createElement("div"); d.className="page pl"; d.id="pg"+i;
   d.innerHTML='<div class="stRow"><button class="stb" data-d="-1">&lsaquo;</button><div class="stc">'+n+'</div><button class="stb" data-d="1">&rsaquo;</button></div><div class="ph">'+n+'<br>not built yet</div>'; $("pages").appendChild(d); });
 function showStation(i){
@@ -200,9 +217,10 @@ const contacts=[ [1,143,28.7],[2,255,32.1],[3,260,0.9],[4,243,154],[5,197,65.8],
   [6,199,216],[7,351,214],[8,17,32,{rcs:800,h:400,side:"enemy"}],[9,88,44.0],[10,312,8.2,{side:"enemy"}],[11,120,15,{side:"ally"}],
   [12,40,45,{side:"enemy",course:230,speed:15,emit:{name:"Type 346B",range:35}}] // moving emitter: heard by ESM before radar sees it
 ].map(([id,b,r,o])=>Sim.newContact(id,b,r,o));
+const missiles=[]; // own missiles in flight
 const radar=Sim.newRadar(20261111), esm=Sim.newEsm(20261112);
 let sweepOn=true; try{ sweepOn=localStorage.getItem("emcon.sweep")!=="0"; }catch(e){}
-const S={paused:true,ri:4,rings:true,labels:true,grid:true,sel:null,hup:false,ts:0};
+const S={paused:true,ri:4,rings:true,labels:true,grid:true,sel:null,hup:false,ts:0,ws:null};
 const COL={own:"#fff",ally:"#4da3ff",unk:"#ffd83a",host:"#ff4a4a"};
 
 const cv=$("cv"),g=cv.getContext("2d");
@@ -286,6 +304,14 @@ function draw(){
     if(S.labels){ g.globalAlpha=Math.max(al,0.3); g.fillStyle=COL[c.cls]; g.textAlign="left"; g.textBaseline="middle"; g.fillText(String(c.id).padStart(4,"0"),11,0); }
     g.restore();
   }
+  // own missiles: small triangle pointing along heading + velocity vector
+  for(const m of missiles){ const dx=m.x-ship.x, dy=m.y-ship.y, r=Math.hypot(dx,dy); if(r>range) continue;
+    const b=Math.atan2(dx,dy)-rot*Math.PI/180, sx=cx+Math.sin(b)*r*px, sy=cy-Math.cos(b)*r*px, a=A(m.hdg), ux=Math.cos(a), uy=Math.sin(a);
+    g.save(); g.translate(sx,sy); g.strokeStyle="#fff"; g.fillStyle="#fff"; g.lineWidth=1.2;
+    g.beginPath(); g.moveTo(ux*8,uy*8); g.lineTo(-ux*5-uy*5,-uy*5+ux*5); g.lineTo(-ux*5+uy*5,-uy*5-ux*5); g.closePath(); g.fill();
+    g.beginPath(); g.moveTo(ux*8,uy*8); g.lineTo(ux*24,uy*24); g.stroke();
+    if(S.labels){ g.font="11px monospace"; g.textAlign="left"; g.textBaseline="middle"; g.fillText("M"+m.n,10,-10); }
+    g.restore(); }
   // own ship: white square + short heading line
   { const a=A(ship.hdg); g.strokeStyle="#fff"; g.lineWidth=1.6;
     g.strokeRect(cx-5,cy-5,10,10);
@@ -378,6 +404,40 @@ function selPanel(){
 document.querySelectorAll(".tags button").forEach(b=>b.onclick=()=>{
   const c=contacts.find(k=>k.id===S.sel); if(c&&Sim.setTag(c,b.dataset.t)) fillTable(); });
 
+// ---- weapons (WEAPONS tab): select target, select weapon, FIRE (5 s countdown) ----
+const wh={t:"",w:"",m:""};
+const mmss=sec=>Math.floor(sec/60)+":"+String(Math.floor(sec%60)).padStart(2,"0");
+function wpnList(){
+  const slot=S.ws!=null?ship.loadout[S.ws]:null, WR=slot?Sim.CFG.WEAPONS[slot.w].range:0;
+  const L=contacts.filter(c=>c.seen).sort((a,b)=>a.id-b.id);
+  const t=L.map(c=>{ const out=slot&&c.tracked&&rng(c)>WR;
+    return `<div class="idr ${c.cls}${c.tracked?"":" lost"}${S.sel===c.id?" sel":""}" data-id="${c.id}"><span>${String(c.id).padStart(4,"0")}</span><span>${c.tracked?TAGN[c.cls]:"--"}</span><span>${rng(c).toFixed(1)} NM</span><span class="s">${!c.tracked?"LOST":out?"OUT OF RANGE":""}</span></div>`; }).join("")
+    ||'<div class="note" style="padding:6px">No contacts yet.</div>';
+  const w=ship.loadout.map((l,i)=>{ const d=Sim.CFG.WEAPONS[l.w];
+    return `<div class="wr${S.ws===i?" sel":""}" data-i="${i}"><span>${d.model}</span><span>${d.name}</span><span>${d.range} NM</span><span class="s am">${l.ammo}</span></div>`; }).join("");
+  const m=missiles.map(k=>{ const c=contacts.find(q=>q.id===k.tid), d=Math.hypot(c.px-k.x,c.py-k.y);
+    return `<div class="srow"><span class="n">M${k.n}</span><span>&rarr; ${String(k.tid).padStart(4,"0")}</span><span class="s">${d.toFixed(1)} NM &middot; ETA ${mmss(d/k.spd*3600)}</span></div>`; }).join("")
+    ||'<div class="note">None in flight.</div>';
+  if(t!==wh.t){ wh.t=t; $("wtList").innerHTML=t; }
+  if(w!==wh.w){ wh.w=w; $("wList").innerHTML=w; }
+  if(m!==wh.m){ wh.m=m; $("mList").innerHTML=m; }
+}
+function wpnPanel(){
+  const c=contacts.find(k=>k.id===S.sel&&k.seen), f=ship.fire, b=$("fireB"), why=Sim.fireCheck(ship,S.ws,c);
+  $("wtInfo").textContent=c?String(c.id).padStart(4,"0")+"  BRG "+pad3(brg(c))+"  RNG "+rng(c).toFixed(1)+"  "+(c.tracked?"Q "+Math.round(c.q*100)+"%":"LOST"):"No contact selected";
+  b.textContent=f?"ABORT  "+Math.ceil(f.t):"FIRE"; b.classList.toggle("cd",!!f); b.disabled=!f&&!!why;
+  $("fireNote").textContent=f?"Launching in "+f.t.toFixed(1)+" s. Needs the radar track and range.":why?why:
+    "Ready: "+Sim.CFG.WEAPONS[ship.loadout[S.ws].w].name+" at "+String(c.id).padStart(4,"0")+". Launch has a "+Sim.CFG.WEAPON.COUNTDOWN+" s countdown.";
+  $("fireMsg").textContent=f?"":ship.fireMsg;
+}
+function wpnRefresh(){ wpnList(); wpnPanel(); identList(); fillTable(); }
+$("wtList").addEventListener("pointerdown",e=>{ const r=e.target.closest(".idr"); if(!r) return;
+  const id=+r.dataset.id; S.sel=S.sel===id?null:id; wpnRefresh(); });
+$("wList").addEventListener("pointerdown",e=>{ const r=e.target.closest(".wr"); if(!r) return;
+  const i=+r.dataset.i; S.ws=S.ws===i?null:i; wpnRefresh(); });
+$("fireB").onclick=()=>{ const c=contacts.find(k=>k.id===S.sel&&k.seen);
+  if(ship.fire) Sim.cancelFire(ship); else Sim.startFire(ship,S.ws,c); wpnPanel(); };
+
 // ---- controls ----
 $("tHead").onclick=()=>{ $("tList").classList.toggle("open"); fillTable(); };
 $("sRev").onclick=()=>ship.ordSpd=Sim.CFG.REVERSE;
@@ -431,12 +491,12 @@ sweepUi();
 let last=performance.now();
 function frame(t){
   const rdt=Math.min(0.1,(t-last)/1000); last=t; let sdt=rdt*TS[S.ts]; // rdt = real time (radar), sdt = scaled (ship motion)
-  if(!S.paused){ while(sdt>0){ const h=Math.min(0.5,sdt); Sim.step(ship,h); for(const c of contacts) Sim.stepContact(c,h); sdt-=h; }
-    Sim.radarStep(radar,ship,contacts,rdt); Sim.esmStep(esm,ship,contacts,rdt); Sim.identifyStep(contacts,rdt,radar.on,ship); } // sensors run in real time
-  hud(); draw(); if(stIdx===1) identPanel(); requestAnimationFrame(frame);
+  if(!S.paused){ while(sdt>0){ const h=Math.min(0.5,sdt); Sim.step(ship,h); for(const c of contacts) Sim.stepContact(c,h); Sim.stepMissiles(missiles,contacts,h); sdt-=h; }
+    Sim.radarStep(radar,ship,contacts,rdt); Sim.esmStep(esm,ship,contacts,rdt); Sim.identifyStep(contacts,rdt,radar.on,ship); Sim.fireStep(ship,contacts,missiles,rdt); } // sensors run in real time
+  hud(); draw(); if(stIdx===1) identPanel(); if(stIdx===2) wpnPanel(); requestAnimationFrame(frame);
 }
-setInterval(()=>{fillTable();sensUi();},500);
-resize(); ui(); sensUi(); identPanel(); requestAnimationFrame(frame);
+setInterval(()=>{fillTable();sensUi();wpnList();},500);
+resize(); ui(); sensUi(); identPanel(); wpnList(); wpnPanel(); requestAnimationFrame(frame);
 </script>
 </body>
 </html>

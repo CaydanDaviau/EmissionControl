@@ -15,12 +15,16 @@
     // Detect range = RANGE_FACTOR * emitter radar range, capped by horizon * DUCT (ducting).
     ESM: { H_ANT: 100, RANGE_FACTOR: 2, DUCT: 1.3, INTERVAL: 2, SIGMA: 3, HOLD: 15 },
     // Identify: needs a continuous radar track (real time, like all sensors). Takes longer at long range and for low-RCS (stealthy) contacts. Track lost = reset to 0.
+    // Weapons (game data; per-ship loadouts later). range nm, speed kt, turn deg/s
+    WEAPONS: { ssm: { name: "SSM", model: "RGM-84", range: 70, speed: 480, turn: 10 } },
+    WEAPON: { COUNTDOWN: 5, ARRIVE: 0.5 }, // launch countdown (s, real time); arrive radius (nm)
     IDENTIFY: { TIME: 20, D_REF: 10, MIN: 5, MAX: 90 } // TIME = seconds at D_REF nm for a normal (RCS_REF) contact
   };
   const norm = a => ((a % 360) + 360) % 360;
   const diff = (to, from) => { const d = norm(to - from); return d > 180 ? d - 360 : d; };
 
-  function newShip() { return { x: 0, y: 0, hdg: 0, spd: 0, ordHdg: 0, ordSpd: 0 }; } // x east nm, y north nm
+  function newShip() { return { x: 0, y: 0, hdg: 0, spd: 0, ordHdg: 0, ordSpd: 0,
+    loadout: [{ w: "ssm", ammo: 8 }], fire: null, fireMsg: "", nMsl: 0 }; } // x east nm, y north nm
 
   function step(s, dt) {
     const ds = s.ordSpd - s.spd, ma = CFG.ACCEL * dt;
@@ -131,6 +135,44 @@
     }
   }
 
-  const api = { CFG, norm, diff, newShip, step, newRadar, newContact, pDetect, radarStep, setTag, stepContact, newEsm, pEsm, esmStep, startIdentify, cancelIdentify, identifyStep, identifyTime };
+  // ---- weapons: select target + weapon, countdown, launch. A launched missile flies toward the target's last known position. ----
+  function fireCheck(ship, slot, c) { // "" if OK, else the reason it can't fire
+    if (slot == null) return "Select a weapon.";
+    if (!c) return "Select a tracked contact.";
+    if (!c.tracked) return "Target not tracked.";
+    const L = ship.loadout[slot], W = CFG.WEAPONS[L.w];
+    if (L.ammo <= 0) return "No ammo.";
+    const d = Math.hypot(c.px - ship.x, c.py - ship.y);
+    if (d > W.range) return "Out of range: " + d.toFixed(1) + " / " + W.range + " NM.";
+    return "";
+  }
+  function startFire(ship, slot, c) {
+    if (ship.fire || fireCheck(ship, slot, c)) return false;
+    ship.fire = { slot, tid: c.id, t: CFG.WEAPON.COUNTDOWN }; ship.fireMsg = ""; return true;
+  }
+  function cancelFire(ship) { if (ship.fire) { ship.fire = null; ship.fireMsg = "Launch aborted."; } }
+  function fireStep(ship, contacts, missiles, dt) { // real-time dt, once per frame
+    const f = ship.fire; if (!f) return;
+    const c = contacts.find(k => k.id === f.tid), why = fireCheck(ship, f.slot, c);
+    if (why) { ship.fire = null; ship.fireMsg = "Launch aborted: " + why; return; } // track lost, out of range...
+    f.t -= dt; if (f.t > 0) return;
+    const L = ship.loadout[f.slot], W = CFG.WEAPONS[L.w];
+    L.ammo--; ship.fire = null; ship.fireMsg = "";
+    missiles.push({ n: ++ship.nMsl, w: L.w, tid: c.id, x: ship.x, y: ship.y, hdg: ship.hdg, spd: W.speed, fuel: W.range });
+  }
+  function stepMissiles(missiles, contacts, dt) { // scaled dt. Finished missiles are removed (no damage yet)
+    for (let i = missiles.length - 1; i >= 0; i--) {
+      const m = missiles[i], c = contacts.find(k => k.id === m.tid), W = CFG.WEAPONS[m.w];
+      const dx = c.px - m.x, dy = c.py - m.y;
+      if (Math.hypot(dx, dy) < CFG.WEAPON.ARRIVE) { missiles.splice(i, 1); continue; }
+      const want = norm(Math.atan2(dx, dy) * 180 / Math.PI), dh = diff(want, m.hdg), mt = W.turn * dt;
+      m.hdg = norm(Math.abs(dh) <= mt ? want : m.hdg + Math.sign(dh) * mt); // turn-rate limited, so it curves on the scope
+      const d = m.spd * dt / 3600, r = m.hdg * Math.PI / 180;
+      m.x += Math.sin(r) * d; m.y += Math.cos(r) * d; m.fuel -= d;
+      if (m.fuel <= 0) missiles.splice(i, 1); // out of fuel
+    }
+  }
+
+  const api = { CFG, norm, diff, newShip, step, newRadar, newContact, pDetect, radarStep, setTag, stepContact, newEsm, pEsm, esmStep, startIdentify, cancelIdentify, identifyStep, identifyTime, fireCheck, startFire, cancelFire, fireStep, stepMissiles };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.Sim = api;
 })(typeof self !== "undefined" ? self : this);
