@@ -358,6 +358,16 @@ function draw(){
     const b=Math.atan2(dx,dy)-rot*Math.PI/180, a=A(q.hdg), ux=Math.cos(a), uy=Math.sin(a), R=6, h=0.8660254;
     g.save(); g.translate(cx+Math.sin(b)*r*px,cy-Math.cos(b)*r*px); g.fillStyle="#00e5ff";
     g.beginPath(); g.moveTo(ux*R,uy*R); g.lineTo(R*(-0.5*ux-h*uy),R*(-0.5*uy+h*ux)); g.lineTo(R*(-0.5*ux+h*uy),R*(-0.5*uy-h*ux)); g.closePath(); g.fill(); g.restore(); }
+  // enemy SAMs: same filled triangle, red
+  for(const c of contacts){ if(!c.def) continue; for(const q of c.def.sams){ const dx=q.x-ship.x, dy=q.y-ship.y, r=Math.hypot(dx,dy); if(r>range) continue;
+    const b=Math.atan2(dx,dy)-rot*Math.PI/180, a=A(q.hdg||0), ux=Math.cos(a), uy=Math.sin(a), R=6, h=0.8660254;
+    g.save(); g.translate(cx+Math.sin(b)*r*px,cy-Math.cos(b)*r*px); g.fillStyle="#ff3b3b";
+    g.beginPath(); g.moveTo(ux*R,uy*R); g.lineTo(R*(-0.5*ux-h*uy),R*(-0.5*uy+h*ux)); g.lineTo(R*(-0.5*ux+h*uy),R*(-0.5*uy-h*ux)); g.closePath(); g.fill(); g.restore(); } }
+  // ally SAMs: same filled triangle, blue
+  for(const q of ally.def.sams){ const dx=q.x-ship.x, dy=q.y-ship.y, r=Math.hypot(dx,dy); if(r>range) continue;
+    const b=Math.atan2(dx,dy)-rot*Math.PI/180, a=A(q.hdg||0), ux=Math.cos(a), uy=Math.sin(a), R=6, h=0.8660254;
+    g.save(); g.translate(cx+Math.sin(b)*r*px,cy-Math.cos(b)*r*px); g.fillStyle="#3d8bff";
+    g.beginPath(); g.moveTo(ux*R,uy*R); g.lineTo(R*(-0.5*ux-h*uy),R*(-0.5*uy+h*ux)); g.lineTo(R*(-0.5*ux+h*uy),R*(-0.5*uy-h*ux)); g.closePath(); g.fill(); g.restore(); }
   // missile lock warning: circle around the scope border, blinks red/white
   if(S.lock){ g.save(); g.strokeStyle=blink?"#fff":"#ff3b3b"; g.lineWidth=3; g.beginPath(); g.arc(cx,cy,R+24,0,Math.PI*2); g.stroke(); g.restore(); }
   // own ship: white square + short heading line (red while sinking), permanent red X once the wreck has stopped

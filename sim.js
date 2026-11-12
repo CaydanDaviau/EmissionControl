@@ -369,7 +369,7 @@
       if (!m || m.state) { df.sams.splice(i, 1); continue; }
       const dx = m.x - q.x, dy = m.y - q.y, dd = Math.hypot(dx, dy), mv = S.SAM.SPEED * dt / 3600;
       if (dd <= mv + 0.3) { df.sams.splice(i, 1); if (rand(c.rng) < S.SAM.P) { m.state = "dead"; m.dieT = S.X_TIME; } continue; }
-      q.x += dx / dd * mv; q.y += dy / dd * mv; }
+      q.hdg = norm(Math.atan2(dx, dy) * 180 / Math.PI); q.x += dx / dd * mv; q.y += dy / dd * mv; }
   }
   // ---- enemy AI (first stage): patrol, duty-cycled radar, ESM; same sensor rules as the player, no weapons yet. Real-time dt ----
   function newAi(seed, wp) { return { seed: seed | 0, wp, i: 0, t: 0, sw: 0, es: 0, q: 0, tracks: false, q: 0, tra: false, qa: 0, hears: null, nHear: 0, cd: 0, ammo: { ssm: 8, asm: 4 }, state: "patrol", known: null, idp: 0, lost: 0, lx: 0, ly: 0, hb: 0, il: 0 }; } // state: patrol | inv (investigating an ESM bearing hb; il = real s since last heard) | id | engage; known: null | "host" | "neutral" (its identification of us); idp: identify progress 0..1; lx/ly: last detected position of us
