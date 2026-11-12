@@ -148,7 +148,7 @@ test("AI fires only with a good track, one per cooldown; random weapon mix, ASM 
   c.ai.q = 0.8; const m1 = Sim.aiFireStep(c, ship, ms, 1);
   assert.ok(m1 && m1.tid === "own" && m1.side === "enemy");
   assert.equal(Sim.aiFireStep(c, ship, ms, 1), null, "cooldown");
-  const seen = new Set(); c.ai.ammo = { ssm: 500, asm: 500 };
+  const seen = new Set(); c.loadout.forEach(l => l.ammo = 500);
   for (let i = 0; i < 40; i++) { c.ai.cd = 0; seen.add(Sim.aiFireStep(c, ship, ms, 1).w); }
   assert.deepEqual([...seen].sort(), ["asm", "ssm"], "both weapons used inside SSM range");
   c.y = 100; c.ai.cd = 0; assert.equal(Sim.aiFireStep(c, ship, ms, 1).w, "asm", "only ASM reaches 100 nm");
@@ -418,4 +418,12 @@ test("stepUnit: one movement entry point for human ship, ally and enemy", () => 
   run(dt => Sim.stepUnit(al, dt, s), 60, 1); assert.ok(Math.abs(al.x - 15) < 1, "escort holds its slot");
   const c = Sim.newContact(1, 0, 20, {}); Sim.initEnemy(c, 1); c.ai = Sim.newAi(5, [[0, 30], [10, 30]]); c.hdg = 0; c.spd = 15; run(dt => Sim.stepUnit(c, dt), 120, 1); assert.ok(c.y > 20.3, "AI unit patrols its waypoints");
   c.sunk = true; run(dt => Sim.stepUnit(c, dt), 30, 1); assert.ok(c.wreck && c.spd === 0, "sunk unit drifts to a wreck");
+});
+
+test("launchMissile: one path for human, enemy and ally; ammo and labels", () => {
+  const s = Sim.newShip(), ms = [], c = Sim.newContact(1, 0, 20, {}); Sim.initEnemy(c, 1); const al = Sim.newAlly(15, 0);
+  const a = Sim.launchMissile(s, "ssm", { tid: 1 }, ms, s), b = Sim.launchMissile(c, "asm", { tid: "own", hdg: 180 }, ms, s), d = Sim.launchMissile(al, "ssm", { tid: 1 }, ms, s);
+  assert.deepEqual([a.side, a.lbl, a.n], ["own", undefined, 1]); assert.deepEqual([b.side, b.lbl, b.hdg], ["enemy", "H1", 180]); assert.deepEqual([d.side, d.lbl], ["ally", "A1"]);
+  assert.equal(s.loadout[0].ammo, 7); assert.equal(c.loadout[1].ammo, 3); assert.equal(al.loadout[0].ammo, 7); assert.equal(new Set(ms.map(m => m.uid)).size, 3);
+  assert.equal(Sim.launchMissile(s, "ssm", { tid: "mk", tx: 3, ty: 4 }, ms, s).tx, 3);
 });
