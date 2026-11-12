@@ -160,3 +160,9 @@ test("enemy radar detects our enlarged cross section at ~50 nm when above the ho
   const A = Sim.CFG.AI, rd = 35 * Math.pow(A.SHIP_RCS / Sim.CFG.RADAR.RCS_REF, 0.25);
   assert.ok(rd > 50 && rd < 60, "R_det " + rd.toFixed(1));
 });
+test("enemy radar tracks us at 45 nm (no horizon cap for the enemy), not at 90 nm", () => {
+  const near = Sim.newShip(), c1 = mk(0, 45, { side: "enemy", emit: { name: "X", range: 35 } }), c2 = mk(0, 90, { side: "enemy", emit: { name: "X", range: 35 } });
+  c1.ai = Sim.newAi(7, null); c2.ai = Sim.newAi(7, null);
+  run(dt => { Sim.aiStep(c1, near, true, dt); Sim.aiStep(c2, near, true, dt); }, 120);
+  assert.ok(c1.ai.dist !== undefined, "45 nm detected"); assert.equal(c2.ai.dist, undefined, "90 nm never detected");
+});

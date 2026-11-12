@@ -280,8 +280,8 @@
     const dx = ship.x - c.x, dy = ship.y - c.y, d = Math.hypot(dx, dy);
     if (c.emitting) { // radar: one roll per sweep period, same model as ours
       while (a.sw >= A.SWEEP) { a.sw -= A.SWEEP;
-        const hor = 1.23 * (Math.sqrt(A.H_ANT) + Math.sqrt(A.SHIP_H)), rd = c.emit.range * Math.pow(A.SHIP_RCS / CFG.RADAR.RCS_REF, 0.25);
-        const p = d > hor ? 0 : 1 / (1 + Math.exp(-(rd - d) / (0.15 * rd)));
+        const rd = c.emit.range * Math.pow(A.SHIP_RCS / CFG.RADAR.RCS_REF, 0.25); // enemy radar has NO horizon cap (user's choice): range comes from cross section only
+        const p = 1 / (1 + Math.exp(-(rd - d) / (0.15 * rd)));
         if (rand(a) < p) { a.q += (1 - a.q) * CFG.RADAR.Q_HIT; a.tracks = true; a.dist = d; a.brg = norm(Math.atan2(dx, dy) * 180 / Math.PI); }
         else if (a.tracks) { a.q -= CFG.RADAR.Q_MISS; }
       }
