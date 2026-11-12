@@ -232,7 +232,7 @@ const RANGES=[5,10,20,40,70,100,150,200,300];
 const TS=[1,5,20];
 const ship=Sim.newShip();
 const LAT0=41+11.295/60, LON0=21+26.496/60;
-const EDGE=70; // enemy spawn: 70 nm north (our radar range; its radar hears us by ESM from further)
+const EDGE=40; // enemy spawn: 40 nm north (just inside ESM range; radar horizon is 32 nm)
 const contacts=[ (()=>{ const c=Sim.newContact(1,0,EDGE,{side:"enemy",speed:15,emit:{name:"Type 346B",range:70}}), R=EDGE; // straight north, on the detection edge
   c.ai=Sim.newAi(20261114,[[10,R+2],[10,R+14],[-10,R+14],[-10,R+2]]); c.hdg=90; Sim.initEnemy(c,4242); return c; })() ];
 const missiles=[]; // own missiles in flight
@@ -491,7 +491,7 @@ function defPanel(){
   $("ciwsB").disabled=dead||!live; $("ciwsA").disabled=dead||df.ciws==null; $("ciwsA").classList.toggle("on",df.ciws==null);
   $("ecmB").disabled=dead; $("ecmB").classList.toggle("on",df.ecm); $("ecmB").textContent=D.ECM.NAME+(df.ecm?"  ON":"  OFF"); $("ecmNote").textContent="Jams incoming missiles within "+D.ECM.RANGE+" NM. Jammed missiles lose guidance and fly straight on. Jamming is an emission: enemy ESM can hear it. EMCON forces it off.";
   $("decB").disabled=dead||df.decoy<=0||df.cd>0; $("decB").textContent=df.cd>0?"RELOADING "+Math.ceil(df.cd):"DEPLOY DECOY";
-  $("decNote").textContent="Decoys "+df.decoy; $("defMsg").textContent=defMsg;
+  $("decNote").textContent="Decoys "+df.decoy+" \u00b7 range "+D.DECOY.RANGE+" NM"; $("defMsg").textContent=defMsg;
 }
 $("dmList").addEventListener("pointerdown",e=>{ const r=e.target.closest(".idr"); if(!r) return; const u=+r.dataset.u; msel=msel===u?null:u; defList(); defPanel(); });
 $("samB").onclick=()=>{ defMsg=Sim.launchSam(ship,missiles,msel); defList(); defPanel(); };
@@ -571,7 +571,7 @@ function frame(t){
   hud(); draw(); if(stIdx===1) identPanel(); if(stIdx===2) wpnPanel(); if(stIdx===3) defPanel(); requestAnimationFrame(frame);
 }
 $("sensPage").insertAdjacentHTML("beforeend",'<div class="note" id="aiDbg" style="border-top:1px dashed #555;margin-top:8px;padding-top:6px"></div>');
-function aiDbg(){ const c=contacts[0], a=c.ai; $("aiDbg").innerHTML="DEBUG ENEMY<br>Radar: "+(c.emitting?"ON":"off")+" ("+Math.round(a.t%60)+"/60 s)<br>Tracks you: "+(a.tracks?Math.round(a.q*100)+"%":"no")+"<br>Hears your radar: "+(a.hears?"yes, BRG "+pad3(a.hears.brg):"no")+"<br>Range: "+Math.hypot(c.x-ship.x,c.y-ship.y).toFixed(1)+" nm<br>State: "+a.state+(a.known?" ("+a.known+")":"")+(a.state==="id"?" \u00b7 ID "+Math.round(a.idp*100)+"%":"")+"<br>Next launch in: "+Math.ceil(a.cd)+" s · SSM "+a.ammo.ssm+" · ASM "+a.ammo.asm+"<br>Stations: "+["NAV","SENS","WPN","DEF"].map((n,i)=>n+(c.dead[i]?" X":" ok")).join(" · ")+(c.sunk?" · DESTROYED":"")+"<br>Defense: SAM "+c.def.sam+" · decoy "+c.def.decoy+(c.ecm?" · ECM":""); }
+function aiDbg(){ const c=contacts[0], a=c.ai; $("aiDbg").innerHTML="DEBUG ENEMY<br>Radar: "+(c.emitting?"ON":"off")+" ("+Math.round(a.t%60)+"/60 s)<br>Tracks you: "+(a.tracks?Math.round(a.q*100)+"%":"no")+"<br>Hears your radar: "+(a.hears?"yes, BRG "+pad3(a.hears.brg):"no")+"<br>Range: "+Math.hypot(c.x-ship.x,c.y-ship.y).toFixed(1)+" nm<br>State: "+a.state+(a.known?" ("+a.known+")":"")+(a.state==="id"?" \u00b7 ID "+Math.round(a.idp*100)+"%":"")+(a.state==="inv"?" \u00b7 BRG "+pad3(a.hb):"")+"<br>Next launch in: "+Math.ceil(a.cd)+" s · SSM "+a.ammo.ssm+" · ASM "+a.ammo.asm+"<br>Stations: "+["NAV","SENS","WPN","DEF"].map((n,i)=>n+(c.dead[i]?" X":" ok")).join(" · ")+(c.sunk?" · DESTROYED":"")+"<br>Defense: SAM "+c.def.sam+" · decoy "+c.def.decoy+(c.ecm?" · ECM":""); }
 setInterval(()=>{aiDbg();fillTable();sensUi();wpnList();defList();applyDmg();},500);
 resize(); ui(); sensUi(); identPanel(); wpnList(); wpnPanel(); defList(); defPanel(); requestAnimationFrame(frame);
 </script>

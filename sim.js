@@ -23,9 +23,9 @@
     DAMAGE: { P_HIT: 0.9, DRIFT_DECEL: 1, DEBUG_DIST: 20, SSM: { second: 0.15, nav: false }, ASM: { second: 0.55, nav: true } },
     // Defense (game data, tunable). Decoy: small chance per deploy to seduce each incoming missile (it then flies straight on, unguided). CIWS: fixed chance per second on ONE missile inside its range.
     // SAM: long range, highest kill chance, limited ammo; resolves after flight time. Dead missiles stay as a white X for X_TIME real seconds.
-    DEFENSE: { ECM: { NAME: "AN/SLQ-32", RANGE: 20, P: 0.01, EMIT: 40 }, DECOY: { P: 0.2, AMMO: 4, CD: 20 }, CIWS: { RANGE: 1, P: 0.1 }, SAM: { RANGE: 25, P: 0.5, AMMO: 16, SPEED: 2000 }, X_TIME: 10, STRAY: 60 },
+    DEFENSE: { ECM: { NAME: "AN/SLQ-32", RANGE: 20, P: 0.01, EMIT: 40 }, DECOY: { P: 0.2, AMMO: 4, CD: 20, RANGE: 4 }, CIWS: { RANGE: 1, P: 0.1 }, SAM: { RANGE: 25, P: 0.5, AMMO: 16, SPEED: 2000 }, X_TIME: 10, STRAY: 60 },
     WEAPON: { COUNTDOWN: 5, ARRIVE: 0.5, SEEKER: 5 }, // SEEKER = nm: a missile reaching the last known position hits only if the target is truly within this; // launch countdown (s, real time); arrive radius (nm)
-    AI: { DUTY_PERIOD: 60, DUTY_ON: 20, SWEEP: 4, SHIP_RCS: 10000, SHIP_H: 60, H_ANT: 100, COAST: 0.02, TURN: 3, WP_NM: 1, FIRE_Q: 0.5, FIRE_CD: 30, HOLD: 0.8, BAND: 4, GIVE_UP: 180, REACT_MIN: 2, REACT_MAX: 5, DECOY_RANGE: 4 }, // HOLD = fraction of its radar range it tries to keep us at (detection edge), BAND = +- nm around that, GIVE_UP = real s without a track before it goes back to patrol; // enemy radar on 20 s of every 60 s; FIRE_Q = min track quality to fire, FIRE_CD = seconds between launches
+    AI: { DUTY_PERIOD: 60, DUTY_ON: 20, SWEEP: 4, SHIP_RCS: 10000, SHIP_H: 60, H_ANT: 100, COAST: 0.02, TURN: 3, WP_NM: 1, FIRE_Q: 0.5, FIRE_CD: 30, HOLD: 0.8, BAND: 4, GIVE_UP: 180, REACT_MIN: 2, REACT_MAX: 5, INV_HOLD: 60 }, // HOLD = fraction of its radar range it tries to keep us at (detection edge), BAND = +- nm around that, GIVE_UP = real s without a track before it goes back to patrol; // enemy radar on 20 s of every 60 s; FIRE_Q = min track quality to fire, FIRE_CD = seconds between launches
     IDENTIFY: { TIME: 20, D_REF: 10, MIN: 5, MAX: 90 } // TIME = seconds at D_REF nm for a normal (RCS_REF) contact
   };
   const STN = ["NAVIGATION", "SENSORS", "WEAPONS", "DEFENSE"];
@@ -97,6 +97,7 @@
     const a = c.ai;
     if (c.sunk) { c.spd = Math.max(0, c.spd - CFG.DAMAGE.DRIFT_DECEL * dt); if (!c.spd) c.wreck = true; } // destroyed: decelerates, no steering, then a wreck
     else if (c.dead && c.dead[0]) { /* NAVIGATION destroyed: holds last course and speed */ }
+    else if (a && a.state === "inv") { steer(c, a.hb, dt); c.spd = CFG.FLANK; } // investigating: flank along the ESM bearing (no range known)
     else if (a && a.state && a.state !== "patrol") { // hunting (id / engage): close in at flank, then hold at the edge of its detection (HOLD x radar range); too close = open range, inside the band = circle
       const dx = a.lx - c.x, dy = a.ly - c.y, d = Math.hypot(dx, dy), hold = CFG.AI.HOLD * c.emit.range, to = norm(Math.atan2(dx, dy) * 180 / Math.PI);
       let want = to, spd = CFG.FLANK;
@@ -254,9 +255,9 @@
   function deployDecoy(ship, missiles) { // returns message. Each incoming missile aimed at us rolls P; success = decoyed
     const D = CFG.DEFENSE.DECOY, df = ship.def, why = defCheck(ship);
     if (why) return why; if (df.decoy <= 0) return "No decoys left."; if (df.cd > 0) return "Decoy reloading: " + Math.ceil(df.cd) + " s.";
-    df.decoy--; df.cd = D.CD; let n = 0;
-    for (const m of missiles) if (live(m) && m.tid === "own" && rand(ship.rng) < D.P) { seduce(ship, m, "decoy"); n++; }
-    return n ? "Decoy deployed: " + n + " missile(s) seduced." : "Decoy deployed: no effect.";
+    df.decoy--; df.cd = D.CD; let n = 0, near = 0;
+    for (const m of missiles) if (live(m) && m.tid === "own" && mdist(ship, m) <= D.RANGE) { near++; if (rand(ship.rng) < D.P) { seduce(ship, m, "decoy"); n++; } } // only missiles inside RANGE can be seduced
+    return n ? "Decoy deployed: " + n + " missile(s) seduced." : near ? "Decoy deployed: no effect." : "Decoy deployed: no missile within " + D.RANGE + " NM.";
   }
   function launchSam(ship, missiles, uid) {
     const S = CFG.DEFENSE.SAM, m = missiles.find(k => k.uid === uid), why = defCheck(ship);
@@ -305,7 +306,7 @@
     th.sort((a, b) => (b.m.w === "asm") - (a.m.w === "asm") || a.d - b.d);
     for (const { m } of th) if (!df.sams.some(q => q.uid === m.uid) && df.sam > 0) { df.sam--; df.sams.push({ uid: m.uid, x: c.x, y: c.y }); } // SAMs: ASMs first (sorted), then SSMs while ammo lasts
     const ssm = th.filter(k => k.m.w === "ssm");
-    if (df.cd <= 0 && df.decoy > 0 && ssm.some(k => !k.m.state && k.d <= A.DECOY_RANGE)) { df.decoy--; df.cd = S.DECOY.CD; for (const k of ssm) if (!k.m.state && rand(c.rng) < S.DECOY.P) seduce(c, k.m, "decoy"); }
+    if (df.cd <= 0 && df.decoy > 0 && ssm.some(k => !k.m.state && k.d <= S.DECOY.RANGE)) { df.decoy--; df.cd = S.DECOY.CD; for (const k of ssm) if (!k.m.state && k.d <= S.DECOY.RANGE && rand(c.rng) < S.DECOY.P) seduce(c, k.m, "decoy"); }
     const jm = ssm.filter(k => !k.m.state && k.d <= S.ECM.RANGE);
     if (jm.length) { c.ecm = true; for (const k of jm) if (rand(c.rng) < 1 - Math.pow(1 - S.ECM.P, dt)) seduce(c, k.m, "jam"); }
     const cw = ssm.filter(k => !k.m.state && k.d <= S.CIWS.RANGE).sort((a, b) => a.d - b.d)[0];
@@ -321,9 +322,9 @@
       q.x += dx / dd * mv; q.y += dy / dd * mv; }
   }
   // ---- enemy AI (first stage): patrol, duty-cycled radar, ESM; same sensor rules as the player, no weapons yet. Real-time dt ----
-  function newAi(seed, wp) { return { seed: seed | 0, wp, i: 0, t: 0, sw: 0, es: 0, q: 0, tracks: false, hears: null, nHear: 0, cd: 0, ammo: { ssm: 8, asm: 4 }, state: "patrol", known: null, idp: 0, lost: 0, lx: 0, ly: 0 }; } // state: patrol | id | engage; known: null | "host" | "neutral" (its identification of us); idp: identify progress 0..1; lx/ly: last detected position of us
+  function newAi(seed, wp) { return { seed: seed | 0, wp, i: 0, t: 0, sw: 0, es: 0, q: 0, tracks: false, hears: null, nHear: 0, cd: 0, ammo: { ssm: 8, asm: 4 }, state: "patrol", known: null, idp: 0, lost: 0, lx: 0, ly: 0, hb: 0, il: 0 }; } // state: patrol | inv (investigating an ESM bearing hb; il = real s since last heard) | id | engage; known: null | "host" | "neutral" (its identification of us); idp: identify progress 0..1; lx/ly: last detected position of us
   function aiIdTime(d) { const I = CFG.IDENTIFY; return Math.max(I.MIN, Math.min(I.MAX, I.TIME * (0.6 + 0.4 * d / I.D_REF) * Math.pow(CFG.RADAR.RCS_REF / CFG.AI.SHIP_RCS, 0.25))); } // same formula as ours
-  function resetAi(a) { a.state = "patrol"; a.known = null; a.idp = 0; a.lost = 0; a.tracks = false; a.q = 0; a.cd = 0; a.ammo = { ssm: 8, asm: 4 }; }
+  function resetAi(a) { a.state = "patrol"; a.known = null; a.idp = 0; a.lost = 0; a.hb = 0; a.il = 0; a.hears = null; a.tracks = false; a.q = 0; a.cd = 0; a.ammo = { ssm: 8, asm: 4 }; }
   function aiStep(c, ship, radarOn, dt) {
     const a = c.ai, A = CFG.AI; if (!a) return;
     a.t += dt; a.sw += dt; a.es += dt;
@@ -341,8 +342,13 @@
     } else { a.sw = 0; if (a.tracks) a.q -= A.COAST * dt; } // silent: track coasts and decays
     if (a.tracks && a.q < CFG.RADAR.Q_DROP) { a.tracks = false; a.q = 0; }
     // behaviour: a radar track starts identification (hostile known = engage at once; neutral known = ignore). Same rules as ours: needs a continuous track, losing it resets progress.
-    if (a.state === "patrol") { if (a.tracks && a.known !== "neutral") { a.state = a.known === "host" ? "engage" : "id"; a.idp = 0; a.lost = 0; } }
-    else {
+    if (a.state === "patrol") {
+      if (a.tracks && a.known !== "neutral") { a.state = a.known === "host" ? "engage" : "id"; a.idp = 0; a.lost = 0; }
+      else if (a.hears && a.known !== "neutral") { a.state = "inv"; a.hb = a.hears.brg; a.il = 0; } // ESM contact without a radar track: go and look
+    } else if (a.state === "inv") { // heads along the last ESM bearing; a radar track starts identification, EMCON (no more ESM) makes it give up after INV_HOLD
+      if (a.tracks) { a.state = a.known === "host" ? "engage" : "id"; a.idp = 0; a.lost = 0; }
+      else if (a.hears) a.il = 0; else if ((a.il += dt) > A.INV_HOLD) a.state = "patrol";
+    } else {
       if (a.tracks) a.lost = 0; else a.lost += dt;
       if (a.state === "id") {
         if (!a.tracks) a.idp = 0;
@@ -353,7 +359,7 @@
     while (a.es >= CFG.ESM.INTERVAL) { a.es -= CFG.ESM.INTERVAL; // ESM: hears our radar, bearing only
       const er = Math.max(radarOn && !ship.dead[1] ? CFG.RADAR.RANGE : 0, ship.def.ecm && !ship.dead[3] ? CFG.DEFENSE.ECM.EMIT : 0); // our emissions: radar and/or jamming
       if (er > 0 && rand(a) < pEsm(d, { emit: { range: er }, emitting: true, h: A.SHIP_H })) {
-        if (!a.hears) a.nHear++; a.hears = { brg: norm(Math.atan2(dx, dy) * 180 / Math.PI + gauss(a) * CFG.ESM.SIGMA), t: a.t };
+        if (!a.hears) a.nHear++; a.hears = { brg: norm(Math.atan2(dx, dy) * 180 / Math.PI + gauss(a) * CFG.ESM.SIGMA), t: a.t }; a.hb = a.hears.brg;
       }
     }
     if (a.hears && a.t - a.hears.t > CFG.ESM.HOLD) a.hears = null;

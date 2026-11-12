@@ -257,3 +257,23 @@ test("horizon cap: radar and ESM detect nothing beyond it (radar 32 nm, ESM x1.3
   const ship = Sim.newShip(), c = mkAi(H + 5, 500); c.ai.state = "patrol"; c.ai.t = 0; run(dt => Sim.aiStep(c, ship, true, dt), 16); assert.equal(c.ai.tracks, false, "enemy radar also capped");
   c.y = H - 5; c.ai.t = 0; run(dt => Sim.aiStep(c, ship, true, dt), 12); assert.ok(c.ai.tracks);
 });
+
+test("decoys only seduce missiles within 4 nm (player)", () => {
+  const s = Sim.newShip(), D = Sim.CFG.DEFENSE.DECOY; D.P = 1;
+  const far = { uid: 1, side: "enemy", w: "ssm", tid: "own", x: 0, y: 10, hdg: 180, spd: 480, fuel: 99 }, near = { uid: 2, side: "enemy", w: "ssm", tid: "own", x: 0, y: 3, hdg: 180, spd: 480, fuel: 99 };
+  Sim.deployDecoy(s, [far]); assert.ok(!far.state, "10 nm: not seduced"); s.def.cd = 0; assert.ok(/no missile within 4/.test(Sim.deployDecoy(s, [far])));
+  s.def.cd = 0; Sim.deployDecoy(s, [far, near]); assert.equal(near.state, "decoy"); assert.ok(!far.state); D.P = 0.2;
+});
+test("AI ESM investigation: hears us without a track -> heads along the bearing; radar track -> identify; EMCON -> gives up after INV_HOLD", () => {
+  const ship = Sim.newShip(), A = Sim.CFG.AI; ship.y = 40; // we are due north at 40 nm, our radar on (heard), enemy radar cannot see that far (cap 32)
+  const c = mkAi(0, 70); c.hdg = 90; c.ai.wp = null;
+  run(dt => Sim.aiStep(c, ship, true, dt), 20); assert.equal(c.ai.state, "inv", "ESM contact starts an investigation"); assert.equal(c.ai.tracks, false);
+  assert.ok(Math.abs(Sim.diff(c.ai.hb, 0)) < 40, "bearing roughly north");
+  run(dt => { Sim.aiStep(c, ship, true, dt); Sim.stepContact(c, dt); }, 600); assert.ok(c.y > 3, "moved north along the bearing"); assert.equal(c.spd, Sim.CFG.FLANK);
+  // inside radar range the track starts identification
+  ship.x = c.x; ship.y = c.y + 20; run(dt => Sim.aiStep(c, ship, true, dt), 70); assert.ok(["id", "engage"].includes(c.ai.state), c.ai.state);
+  // EMCON: no more ESM, after INV_HOLD back to patrol
+  const d = mkAi(0, 70); d.ai.state = "inv"; d.ai.hb = 0; d.ai.il = 0; ship.x = 0; ship.y = 300; run(dt => Sim.aiStep(d, ship, false, dt), A.INV_HOLD + 5); assert.equal(d.ai.state, "patrol");
+  // neutral known: ignores ESM
+  const e = mkAi(0, 70); e.ai.known = "neutral"; ship.y = 40; run(dt => Sim.aiStep(e, ship, true, dt), 30); assert.equal(e.ai.state, "patrol");
+});
