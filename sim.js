@@ -180,12 +180,13 @@
   }
   function startFire(ship, slot, c) {
     if (ship.fire || fireCheck(ship, slot, c)) return false;
-    ship.fire = { slot, tid: c.id, t: CFG.WEAPON.COUNTDOWN }; ship.fireMsg = ""; return true;
+    // mk: a FIX marker expires in 5 s, so keep its point for the countdown
+    ship.fire = { slot, tid: c.id, t: CFG.WEAPON.COUNTDOWN, mk: c.marker ? { id: c.id, marker: true, tracked: true, seen: true, px: c.px, py: c.py } : null }; ship.fireMsg = ""; return true;
   }
   function cancelFire(ship) { if (ship.fire) { ship.fire = null; ship.fireMsg = "Launch aborted."; } }
   function fireStep(ship, contacts, missiles, dt) { // real-time dt, once per frame
     const f = ship.fire; if (!f) return;
-    const c = contacts.find(k => k.id === f.tid), why = fireCheck(ship, f.slot, c);
+    const c = contacts.find(k => k.id === f.tid) || f.mk, why = fireCheck(ship, f.slot, c);
     if (why) { ship.fire = null; ship.fireMsg = "Launch aborted: " + why; return; } // track lost, out of range...
     f.t -= dt; if (f.t > 0) return;
     const L = ship.loadout[f.slot], W = CFG.WEAPONS[L.w];
