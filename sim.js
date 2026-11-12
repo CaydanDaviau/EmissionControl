@@ -16,7 +16,8 @@
     ESM: { H_ANT: 100, RANGE_FACTOR: 2, DUCT: 1.3, INTERVAL: 2, SIGMA: 3, HOLD: 15 },
     // Identify: needs a continuous radar track (real time, like all sensors). Takes longer at long range and for low-RCS (stealthy) contacts. Track lost = reset to 0.
     // Weapons (game data; per-ship loadouts later). range nm, speed kt, turn deg/s
-    WEAPONS: { ssm: { name: "SSM", model: "RGM-84", range: 70, speed: 480, turn: 10 } },
+    WEAPONS: { ssm: { name: "SSM", model: "RGM-84", range: 70, speed: 480, turn: 10 },
+      asm: { name: "ASM", model: "LRASM", range: 150, speed: 500, turn: 8 } },
     WEAPON: { COUNTDOWN: 5, ARRIVE: 0.5 }, // launch countdown (s, real time); arrive radius (nm)
     IDENTIFY: { TIME: 20, D_REF: 10, MIN: 5, MAX: 90 } // TIME = seconds at D_REF nm for a normal (RCS_REF) contact
   };
@@ -24,7 +25,7 @@
   const diff = (to, from) => { const d = norm(to - from); return d > 180 ? d - 360 : d; };
 
   function newShip() { return { x: 0, y: 0, hdg: 0, spd: 0, ordHdg: 0, ordSpd: 0,
-    loadout: [{ w: "ssm", ammo: 8 }], fire: null, fireMsg: "", nMsl: 0 }; } // x east nm, y north nm
+    loadout: [{ w: "ssm", ammo: 8 }, { w: "asm", ammo: 4 }], fire: null, fireMsg: "", nMsl: 0 }; } // x east nm, y north nm
 
   function step(s, dt) {
     const ds = s.ordSpd - s.spd, ma = CFG.ACCEL * dt;
