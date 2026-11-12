@@ -23,7 +23,7 @@
     DAMAGE: { P_HIT: 0.9, DRIFT_DECEL: 1, DEBUG_DIST: 20, SSM: { second: 0.15, nav: false }, ASM: { second: 0.55, nav: true } },
     // Defense (game data, tunable). Decoy: small chance per deploy to seduce each incoming missile (it then flies straight on, unguided). CIWS: fixed chance per second on ONE missile inside its range.
     // SAM: long range, highest kill chance, limited ammo; resolves after flight time. Dead missiles stay as a white X for X_TIME real seconds.
-    DEFENSE: { DECOY: { P: 0.2, AMMO: 4, CD: 20 }, CIWS: { RANGE: 1, P: 0.1 }, SAM: { RANGE: 25, P: 0.75, AMMO: 8, SPEED: 2000 }, X_TIME: 10, STRAY: 60 },
+    DEFENSE: { DECOY: { P: 0.2, AMMO: 4, CD: 20 }, CIWS: { RANGE: 1, P: 0.1 }, SAM: { RANGE: 25, P: 0.5, AMMO: 8, SPEED: 2000 }, X_TIME: 10, STRAY: 60 },
     WEAPON: { COUNTDOWN: 5, ARRIVE: 0.5 }, // launch countdown (s, real time); arrive radius (nm)
     IDENTIFY: { TIME: 20, D_REF: 10, MIN: 5, MAX: 90 } // TIME = seconds at D_REF nm for a normal (RCS_REF) contact
   };
@@ -232,15 +232,17 @@
     const S = CFG.DEFENSE.SAM, m = missiles.find(k => k.uid === uid), why = defCheck(ship);
     if (why) return why; if (!m || !live(m)) return "Select a live incoming missile."; if (ship.def.sam <= 0) return "No SAM ammo.";
     const d = mdist(ship, m); if (d > S.RANGE) return "Out of SAM range: " + d.toFixed(1) + " / " + S.RANGE + " NM.";
-    ship.def.sam--; ship.sams.push({ uid, t: Math.max(2, d / S.SPEED * 3600) }); return "SAM launched.";
+    ship.def.sam--; ship.sams.push({ uid, x: ship.x, y: ship.y, hdg: norm(Math.atan2(m.x - ship.x, m.y - ship.y) * 180 / Math.PI) }); return "SAM launched.";
   }
   function setCiws(ship, uid) { ship.def.ciws = uid == null ? null : uid; } // manual target (even out of range) disables auto
   function stepDefense(ship, missiles, dt) { // scaled dt
     const df = ship.def, S = CFG.DEFENSE; df.cd = Math.max(0, df.cd - dt);
     if (ship.dead[3]) { df.ciwsOn = null; ship.sams.length = 0; return; }
-    for (let i = ship.sams.length - 1; i >= 0; i--) { const q = ship.sams[i]; q.t -= dt; if (q.t > 0) continue;
-      ship.sams.splice(i, 1); const m = missiles.find(k => k.uid === q.uid);
-      if (m && live(m) && rand(ship.rng) < S.SAM.P) m.state = "dead", m.dieT = S.X_TIME; }
+    for (let i = ship.sams.length - 1; i >= 0; i--) { const q = ship.sams[i], m = missiles.find(k => k.uid === q.uid); // SAM flies straight at its target
+      if (!m || !live(m)) { ship.sams.splice(i, 1); continue; }
+      const dx = m.x - q.x, dy = m.y - q.y, dd = Math.hypot(dx, dy), mv = S.SAM.SPEED * dt / 3600; q.hdg = norm(Math.atan2(dx, dy) * 180 / Math.PI);
+      if (dd <= mv + 0.3) { ship.sams.splice(i, 1); if (rand(ship.rng) < S.SAM.P) { m.state = "dead"; m.dieT = S.X_TIME; } continue; }
+      q.x += dx / dd * mv; q.y += dy / dd * mv; }
     let tg = null;
     if (df.ciws != null) { tg = missiles.find(k => k.uid === df.ciws && live(k)); if (!tg) df.ciws = null; } // manual target gone: back to auto
     if (df.ciws == null) { let bd = 1e9; for (const m of missiles) if (live(m)) { const d = mdist(ship, m); if (d <= S.CIWS.RANGE && d < bd) { bd = d; tg = m; } } }
