@@ -237,22 +237,29 @@
     ship.def.sam--; ship.sams.push({ uid, x: ship.x, y: ship.y, hdg: norm(Math.atan2(m.x - ship.x, m.y - ship.y) * 180 / Math.PI) }); return "SAM launched.";
   }
   function setCiws(ship, uid) { ship.def.ciws = uid == null ? null : uid; } // manual target (even out of range) disables auto
-  function stepDefense(ship, missiles, dt) { // scaled dt
-    const df = ship.def, S = CFG.DEFENSE; df.cd = Math.max(0, df.cd - dt);
+  function stepDefense(ship, missiles, dt) { // SCALED dt: only SAM flight speed (time button affects speeds only)
+    const df = ship.def, S = CFG.DEFENSE;
     if (ship.dead[3]) { df.ciwsOn = null; df.ecm = false; ship.sams.length = 0; return; }
-    if (df.ecm) for (const m of missiles) if (live(m) && m.tid === "own" && mdist(ship, m) <= S.ECM.RANGE && rand(ship.rng) < 1 - Math.pow(1 - S.ECM.P, dt)) seduce(ship, m, "jam");
     for (let i = ship.sams.length - 1; i >= 0; i--) { const q = ship.sams[i], m = missiles.find(k => k.uid === q.uid); // SAM flies straight at its target
       if (!m || !live(m)) { ship.sams.splice(i, 1); continue; }
       const dx = m.x - q.x, dy = m.y - q.y, dd = Math.hypot(dx, dy), mv = S.SAM.SPEED * dt / 3600; q.hdg = norm(Math.atan2(dx, dy) * 180 / Math.PI);
       if (dd <= mv + 0.3) { ship.sams.splice(i, 1); if (rand(ship.rng) < S.SAM.P) { m.state = "dead"; m.dieT = S.X_TIME; } continue; }
       q.x += dx / dd * mv; q.y += dy / dd * mv; }
+  }
+  function ciwsStep(ship, missiles, dt) { // REAL dt: decoy reload and CIWS rolls are not sped up by the time button
+    const df = ship.def, S = CFG.DEFENSE; df.cd = Math.max(0, df.cd - dt);
+    if (ship.dead[3]) { df.ciwsOn = null; return; }
     let tg = null;
     if (df.ciws != null) { tg = missiles.find(k => k.uid === df.ciws && live(k)); if (!tg) df.ciws = null; } // manual target gone: back to auto
     if (df.ciws == null) { let bd = 1e9; for (const m of missiles) if (live(m)) { const d = mdist(ship, m); if (d <= S.CIWS.RANGE && d < bd) { bd = d; tg = m; } } }
     df.ciwsOn = null;
     if (tg && mdist(ship, tg) <= S.CIWS.RANGE) { df.ciwsOn = tg.uid; if (rand(ship.rng) < 1 - Math.pow(1 - S.CIWS.P, dt)) { tg.state = "dead"; tg.dieT = S.X_TIME; } }
   }
+  function ecmStep(ship, missiles, dt) { // REAL-time dt (not the Time button): jamming chance per real second
+    const S = CFG.DEFENSE; if (!ship.def.ecm || ship.dead[3]) return;
+    for (const m of missiles) if (live(m) && m.tid === "own" && mdist(ship, m) <= S.ECM.RANGE && rand(ship.rng) < 1 - Math.pow(1 - S.ECM.P, dt)) seduce(ship, m, "jam");
+  }
   function reap(missiles, dt) { for (let i = missiles.length - 1; i >= 0; i--) { const m = missiles[i]; if (m.state === "dead" && (m.dieT -= dt) <= 0) missiles.splice(i, 1); } } // real dt
-  const api = { toggleEcm, deployDecoy, launchSam, setCiws, stepDefense, reap, defCheck, CFG, norm, diff, newShip, step, newRadar, newContact, pDetect, radarStep, setTag, stepContact, newEsm, pEsm, esmStep, startIdentify, cancelIdentify, identifyStep, identifyTime, fireCheck, startFire, cancelFire, fireStep, stepMissiles, hitShip, debugMissile, resetShip, STN };
+  const api = { ciwsStep, ecmStep, toggleEcm, deployDecoy, launchSam, setCiws, stepDefense, reap, defCheck, CFG, norm, diff, newShip, step, newRadar, newContact, pDetect, radarStep, setTag, stepContact, newEsm, pEsm, esmStep, startIdentify, cancelIdentify, identifyStep, identifyTime, fireCheck, startFire, cancelFire, fireStep, stepMissiles, hitShip, debugMissile, resetShip, STN };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.Sim = api;
 })(typeof self !== "undefined" ? self : this);
