@@ -386,23 +386,29 @@
       q.hdg = norm(Math.atan2(dx, dy) * 180 / Math.PI); q.x += dx / dd * mv; q.y += dy / dd * mv; }
   }
   // ---- enemy AI (first stage): patrol, duty-cycled radar, ESM; same sensor rules as the player, no weapons yet. Real-time dt ----
-  function newAi(seed, wp) { return { seed: seed | 0, wp, i: 0, t: 0, sw: 0, es: 0, q: 0, tracks: false, pid: null, fr: {}, hears: null, nHear: 0, cd: 0, state: "patrol", known: null, idp: 0, lost: 0, lx: 0, ly: 0, hb: 0, il: 0 }; } // state: patrol | inv (investigating an ESM bearing hb; il = real s since last heard) | id | engage; known: null | "host" | "neutral" (its identification of us); idp: identify progress 0..1; lx/ly: last detected position of us
+  function newTrk() { return { tracks: false, q: 0, known: null, idp: 0, lx: 0, ly: 0 }; } // one track record per foe: radar track flag, quality, identification (known, idp progress), last detected position
+  const PRIM = ["tracks", "q", "known", "idp", "lx", "ly"]; // legacy names = the primary foe's record in a.trk (key "_" while no foe is bound yet)
+  const prRec = a => a.trk[a.pid === null ? "_" : a.pid] || (a.trk[a.pid === null ? "_" : a.pid] = newTrk());
+  function newAi(seed, wp) { const a = { seed: seed | 0, wp, i: 0, t: 0, sw: 0, es: 0, pid: null, trk: {}, hears: null, nHear: 0, cd: 0, state: "patrol", lost: 0, hb: 0, il: 0 };
+    for (const k of PRIM) Object.defineProperty(a, k, { get() { return prRec(a)[k]; }, set(v) { prRec(a)[k] = v; }, enumerable: false });
+    return a; } // state: patrol | inv (investigating an ESM bearing hb; il = real s since last heard) | id | engage; known: null | "host" | "neutral" (its identification of us); idp: identify progress 0..1; lx/ly: last detected position of us
   function aiIdTime(d) { const I = CFG.IDENTIFY; return Math.max(I.MIN, Math.min(I.MAX, I.TIME * (0.6 + 0.4 * d / I.D_REF) * Math.pow(CFG.RADAR.RCS_REF / CFG.AI.SHIP_RCS, 0.25))); } // same formula as ours
-  function resetAi(a) { a.state = "patrol"; a.known = null; a.idp = 0; a.lost = 0; a.hb = 0; a.il = 0; a.hears = null; a.fix = null; a.tracks = false; a.q = 0; a.pid = null; a.fr = {}; a.cd = 0; }
+  function resetAi(a) { a.state = "patrol"; a.known = null; a.idp = 0; a.lost = 0; a.hb = 0; a.il = 0; a.hears = null; a.fix = null; a.pid = null; a.trk = {}; a.cd = 0; }
   // ---- team-agnostic AI: any unit with `ai` senses and fires at every unit of the other team (`team`) ----
   const keyOf = u => u.id === undefined ? "own" : u.id; // the player ship has no id
   const isShip = u => u.ctl === "human"; // the player ship = the unit under human control
   const relOf = u => isShip(u) ? u.rel : "host"; // how identification resolves: the player ship carries its own `rel`, every AI/contact unit counts as hostile
   const foesOf = (c, ship, ally, contacts) => [ship, ally].concat(contacts || []).filter(u => u && u !== c && u.team !== c.team); // player ship first
-  function bindPrimary(a, foes) { // the primary foe's track lives in the legacy fields of `a` (tracks, q, lx, ly, known...), the others in a.fr[id]
+  function bindPrimary(a, foes) { // every foe has a record in a.trk[id]; the primary foe's record is also reachable through the legacy names a.tracks, a.q, a.known, a.idp, a.lx, a.ly
     const live = f => isShip(f) || !f.sunk;
     if (a.pid !== null && foes.some(f => keyOf(f) === a.pid && live(f))) return foes.find(f => keyOf(f) === a.pid);
     const P = foes.find(live), moved = a.pid !== null;
     a.pid = P ? keyOf(P) : null;
-    if (moved) { a.tracks = false; a.q = 0; a.known = null; a.idp = 0; if (a.state !== "patrol") a.state = "patrol"; }
+    if (P && !moved && a.trk._ && !a.trk[a.pid]) { a.trk[a.pid] = a.trk._; delete a.trk._; } // records made before any foe was bound belong to the first one
+    if (moved) { if (a.pid !== null) a.trk[a.pid] = newTrk(); if (a.state !== "patrol") a.state = "patrol"; }
     return P;
   }
-  const rec = (a, f) => keyOf(f) === a.pid ? a : (a.fr[keyOf(f)] || (a.fr[keyOf(f)] = { tracks: false, q: 0 }));
+  const rec = (a, f) => a.trk[keyOf(f)] || (a.trk[keyOf(f)] = newTrk());
   function emitOf(f, radarOn) { // what a unit radiates that an opposing ESM can hear (nm)
     if (isShip(f)) return Math.max(radarOn && !f.dead[1] ? CFG.RADAR.RANGE : 0, f.def.ecm && !f.dead[3] ? CFG.DEFENSE.ECM.EMIT : 0, f.link && !f.dead[1] ? CFG.LINK.EMIT : 0); // radar, jamming, LINK
     return f.emitting && f.emit && !f.sunk && !(f.dead && f.dead[1]) ? f.emit.range : 0; }
@@ -410,7 +416,7 @@
     const a = c.ai, A = CFG.AI; if (!a) return;
     a.t += dt; a.sw += dt; a.es += dt;
     const foes = foesOf(c, ship, ally, contacts); let P = bindPrimary(a, foes);
-    if (c.sunk || (c.dead && c.dead[1])) { c.emitting = false; a.tracks = false; a.q = 0; a.fr = {}; a.hears = null; if (a.state !== "patrol") { a.lost += dt; if (a.lost > A.GIVE_UP) { a.state = "patrol"; a.idp = 0; } } return; } // sensors destroyed: no radar, no ESM
+    if (c.sunk || (c.dead && c.dead[1])) { c.emitting = false; for (const k in a.trk) { if (k === String(a.pid)) { a.trk[k].tracks = false; a.trk[k].q = 0; } else delete a.trk[k]; } a.hears = null; if (a.state !== "patrol") { a.lost += dt; if (a.lost > A.GIVE_UP) { a.state = "patrol"; a.idp = 0; } } return; } // sensors destroyed: no radar, no ESM
     c.emitting = (a.state === "id" && a.tracks) || (a.t % A.DUTY_PERIOD) < A.DUTY_ON; // 20/60 duty cycle always (also in combat); exception: while identifying an unknown it holds a track, radar stays ON until identified or the contact is lost
     const D = f => Math.hypot(f.x - c.x, f.y - c.y); let d = P ? D(P) : Infinity;
     if (c.emitting) { // radar: one roll per sweep period per foe, same model as ours
@@ -418,18 +424,17 @@
         for (const f of foes) { if (!isShip(f) && f.sunk) continue;
           const r = rec(a, f), df = D(f), rd = c.emit.range * Math.pow((f.rcs || A.SHIP_RCS) / CFG.RADAR.RCS_REF, 0.25); // no horizon cap on range itself: cross section only
           const p = df > CFG.RADAR.HORIZON ? 0 : 1 / (1 + Math.exp(-(rd - df) / (0.15 * rd))); // same horizon cap as ours
-          if (rand(a) < p) { r.q += (1 - r.q) * CFG.RADAR.Q_HIT; r.tracks = true; if (r === a) { a.lx = f.x; a.ly = f.y; a.dist = df; a.brg = norm(Math.atan2(f.x - c.x, f.y - c.y) * 180 / Math.PI); } }
+          if (rand(a) < p) { r.q += (1 - r.q) * CFG.RADAR.Q_HIT; r.tracks = true; if (keyOf(f) === a.pid) { a.lx = f.x; a.ly = f.y; a.dist = df; a.brg = norm(Math.atan2(f.x - c.x, f.y - c.y) * 180 / Math.PI); } }
           else if (r.tracks) r.q -= CFG.RADAR.Q_MISS; }
       }
-    } else { a.sw = 0; if (a.tracks) a.q -= A.COAST * dt; for (const k in a.fr) if (a.fr[k].tracks) a.fr[k].q -= A.COAST * dt; } // silent: tracks coast and decay
-    if (a.tracks && a.q < CFG.RADAR.Q_DROP) { a.tracks = false; a.q = 0; }
-    for (const k in a.fr) { const f = foes.find(u => String(keyOf(u)) === k), r = a.fr[k];
-      if (!f || f.sunk) delete a.fr[k]; else if (r.tracks && r.q < CFG.RADAR.Q_DROP) { r.tracks = false; r.q = 0; } }
+    } else { a.sw = 0; for (const k in a.trk) if (a.trk[k].tracks) a.trk[k].q -= A.COAST * dt; } // silent: tracks coast and decay
+    for (const k in a.trk) { if (k === "_") continue; const f = foes.find(u => String(keyOf(u)) === k), r = a.trk[k];
+      if (!f || (!isShip(f) && f.sunk)) { if (k !== String(a.pid)) delete a.trk[k]; } else if (r.tracks && r.q < CFG.RADAR.Q_DROP) { r.tracks = false; r.q = 0; } }
     if (!a.tracks && a.state !== "engage") { // the primary foe is not tracked but another is: switch to it (identification and the hunt follow the foe it actually has a track on)
-      let bk = null; for (const k in a.fr) if (a.fr[k].tracks && (bk === null || a.fr[k].q > a.fr[bk].q)) bk = k;
+      let bk = null; for (const k in a.trk) if (k !== String(a.pid) && k !== "_" && a.trk[k].tracks && (bk === null || a.trk[k].q > a.trk[bk].q)) bk = k;
       const nf = bk === null ? null : foes.find(u => String(keyOf(u)) === bk);
-      if (nf) { if (P) a.fr[a.pid] = { tracks: false, q: 0, known: a.known, idp: 0 }; const r = a.fr[bk]; delete a.fr[bk];
-        a.pid = keyOf(nf); P = nf; d = D(nf); a.tracks = true; a.q = r.q; a.known = r.known || null; a.idp = 0; a.lost = 0; a.lx = nf.x; a.ly = nf.y; a.dist = d; a.brg = norm(Math.atan2(nf.x - c.x, nf.y - c.y) * 180 / Math.PI); a.state = "patrol"; }
+      if (nf) { if (P) { a.tracks = false; a.q = 0; a.idp = 0; } // old primary keeps its record (and what it knows about it)
+        a.pid = keyOf(nf); P = nf; d = D(nf); a.idp = 0; a.lost = 0; a.lx = nf.x; a.ly = nf.y; a.dist = d; a.brg = norm(Math.atan2(nf.x - c.x, nf.y - c.y) * 180 / Math.PI); a.state = "patrol"; }
     }
     // behaviour: a radar track starts identification (hostile known = engage at once; neutral known = ignore). Same rules as ours: needs a continuous track, losing it resets progress.
     if (a.state === "patrol") {
