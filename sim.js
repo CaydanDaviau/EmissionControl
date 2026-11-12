@@ -33,10 +33,11 @@
   const norm = a => ((a % 360) + 360) % 360;
   const diff = (to, from) => { const d = norm(to - from); return d > 180 ? d - 360 : d; };
 
-  function newShip() { return { team: "blue", rel: "host", x: 0, y: 0, hdg: 0, spd: 0, ordHdg: 0, ordSpd: 0,
+  function newDef() { return { decoy: CFG.DEFENSE.DECOY.AMMO, sam: CFG.DEFENSE.SAM.AMMO, cd: 0, samCd: 0, ciws: null, ciwsOn: null, ecm: false, sams: [] }; } // defense state shared by every unit; ciws = manual target uid (null = auto), ciwsOn = uid engaged now; sams = pending intercepts
+  function initUnit(u, team, ctl, seed) { u.team = team; u.ctl = ctl; u.rng = { seed: seed | 0 }; u.dead = [false, false, false, false]; u.sunk = false; u.wreck = false; u.ecm = false; u.def = newDef(); return u; } // ctl = "human" | "ai": who issues this unit's commands
+  function newShip() { return initUnit({ rel: "host", x: 0, y: 0, hdg: 0, spd: 0, ordHdg: 0, ordSpd: 0,
     loadout: [{ w: "ssm", ammo: 8 }, { w: "asm", ammo: 4 }], fire: null, fireMsg: "", nMsl: 0,
-    dead: [false, false, false, false], sunk: false, wreck: false, rng: { seed: 20261113 }, nEnemy: 0, nAlly: 0, hitSeq: 0, hitMsg: "", uid: 0,
-    def: { decoy: CFG.DEFENSE.DECOY.AMMO, sam: CFG.DEFENSE.SAM.AMMO, cd: 0, ciws: null, ciwsOn: null, ecm: false }, sams: [] }; } // ciws = manual target uid (null = auto), ciwsOn = uid being engaged now; sams = pending intercepts // x east nm, y north nm
+    nEnemy: 0, nAlly: 0, hitSeq: 0, hitMsg: "", uid: 0 }, "blue", "human", 20261113); } // x east nm, y north nm
 
   function step(s, dt) {
     if (s.wreck) return;
@@ -218,7 +219,7 @@
     ++ship.nEnemy;
     missiles.push({ uid: ++ship.uid, n: ship.nEnemy, lbl: "H" + ship.nEnemy, side: "enemy", w, tid: "own", x: ship.x + Math.sin(a) * d, y: ship.y + Math.cos(a) * d, hdg: norm(b + 180), spd: W.speed, fuel: W.range });
   }
-  function resetShip(ship) { ship.def = { decoy: CFG.DEFENSE.DECOY.AMMO, sam: CFG.DEFENSE.SAM.AMMO, cd: 0, ciws: null, ciwsOn: null, ecm: false }; ship.sams = [];
+  function resetShip(ship) { ship.def = newDef(); ship.ecm = false;
     ship.dead = [false, false, false, false]; ship.link = false; ship.sunk = false; ship.wreck = false; ship.fire = null; ship.fireMsg = ""; ship.hitMsg = ""; }
   function stepMissiles(missiles, contacts, dt, ship, ally) { // scaled dt. tid "own" = aimed at the own ship (true position). Others: last known position, no damage yet
     for (let i = missiles.length - 1; i >= 0; i--) {
@@ -280,16 +281,16 @@
     const S = CFG.DEFENSE.SAM, m = missiles.find(k => k.uid === uid), why = defCheck(ship);
     if (why) return why; if (!m || !live(m)) return "Select a live incoming missile."; if (ship.def.sam <= 0) return "No SAM ammo."; if ((ship.def.samCd || 0) > 0) return "SAM reloading: " + Math.ceil(ship.def.samCd) + " s.";
     const d = mdist(ship, m); if (d > S.RANGE) return "Out of SAM range: " + d.toFixed(1) + " / " + S.RANGE + " NM.";
-    ship.def.sam--; ship.def.samCd = S.RELOAD; ship.sams.push({ uid, x: ship.x, y: ship.y, hdg: norm(Math.atan2(m.x - ship.x, m.y - ship.y) * 180 / Math.PI) }); return "SAM launched.";
+    ship.def.sam--; ship.def.samCd = S.RELOAD; ship.def.sams.push({ uid, x: ship.x, y: ship.y, hdg: norm(Math.atan2(m.x - ship.x, m.y - ship.y) * 180 / Math.PI) }); return "SAM launched.";
   }
   function setCiws(ship, uid) { ship.def.ciws = uid == null ? null : uid; } // manual target (even out of range) disables auto
   function stepDefense(ship, missiles, dt) { // SCALED dt: only SAM flight speed (time button affects speeds only)
     const df = ship.def, S = CFG.DEFENSE;
-    if (ship.dead[3]) { df.ciwsOn = null; df.ecm = false; ship.sams.length = 0; return; }
-    for (let i = ship.sams.length - 1; i >= 0; i--) { const q = ship.sams[i], m = missiles.find(k => k.uid === q.uid); // SAM flies straight at its target
-      if (!m || !live(m)) { ship.sams.splice(i, 1); continue; }
+    if (ship.dead[3]) { df.ciwsOn = null; df.ecm = false; ship.def.sams.length = 0; return; }
+    for (let i = ship.def.sams.length - 1; i >= 0; i--) { const q = ship.def.sams[i], m = missiles.find(k => k.uid === q.uid); // SAM flies straight at its target
+      if (!m || !live(m)) { ship.def.sams.splice(i, 1); continue; }
       const dx = m.x - q.x, dy = m.y - q.y, dd = Math.hypot(dx, dy), mv = S.SAM.SPEED * dt / 3600; q.hdg = norm(Math.atan2(dx, dy) * 180 / Math.PI);
-      if (dd <= mv + 0.3) { ship.sams.splice(i, 1); if (rand(ship.rng) < S.SAM.P) { m.state = "dead"; m.dieT = S.X_TIME; } continue; }
+      if (dd <= mv + 0.3) { ship.def.sams.splice(i, 1); if (rand(ship.rng) < S.SAM.P) { m.state = "dead"; m.dieT = S.X_TIME; } continue; }
       q.x += dx / dd * mv; q.y += dy / dd * mv; }
   }
   function ciwsStep(ship, missiles, dt) { // REAL dt: decoy reload and CIWS rolls are not sped up by the time button
@@ -308,8 +309,8 @@
   function reap(missiles, dt) { for (let i = missiles.length - 1; i >= 0; i--) { const m = missiles[i]; if (m.state === "dead" && (m.dieT -= dt) <= 0) missiles.splice(i, 1); } } // real dt
   // ---- LINK, ally, ESM fixes ----
   function toggleLink(ship, emcon) { if (ship.dead[1]) return "Sensors destroyed."; if (emcon) { ship.link = false; return "EMCON active: LINK unavailable."; } ship.link = !ship.link; return "LINK " + (ship.link ? "ON." : "OFF."); } // LINK is an emission: off under EMCON
-  function newAlly(x, y) { return { id: "A1", team: "blue", emit: { name: "AN/SPY-1D", range: CFG.RADAR.RANGE }, emitting: false, ai: newAi(99, null), x, y, hdg: 0, spd: 0, rng: { seed: 77 }, dead: [false, false, false, false], sunk: false, wreck: false, ecm: false, def: { decoy: CFG.DEFENSE.DECOY.AMMO, sam: CFG.DEFENSE.SAM.AMMO, cd: 0, sams: [] } }; }
-  function resetAlly(al, x, y) { al.x = x; al.y = y; al.hdg = 0; al.spd = 0; al.dead = [false, false, false, false]; al.sunk = false; al.wreck = false; al.ecm = false; al.def = { decoy: CFG.DEFENSE.DECOY.AMMO, sam: CFG.DEFENSE.SAM.AMMO, cd: 0, sams: [] }; al.emitting = false; if (al.ai) resetAi(al.ai); }
+  function newAlly(x, y) { return initUnit({ id: "A1", emit: { name: "AN/SPY-1D", range: CFG.RADAR.RANGE }, emitting: false, ai: newAi(99, null), x, y, hdg: 0, spd: 0 }, "blue", "ai", 77); }
+  function resetAlly(al, x, y) { al.x = x; al.y = y; al.hdg = 0; al.spd = 0; al.dead = [false, false, false, false]; al.sunk = false; al.wreck = false; al.ecm = false; al.def = newDef(); al.emitting = false; if (al.ai) resetAi(al.ai); }
   function allyStep(al, ship, dt) { // SCALED dt: holds a slot CFG.ALLY.OFFSET nm abeam (starboard) of our ship; destroyed = drifts to a stop (same rule as ours), then wreck
     if (al.sunk) { al.spd = Math.max(0, al.spd - CFG.DAMAGE.DRIFT_DECEL * dt); if (al.spd === 0) al.wreck = true; if (al.wreck) return; const q0 = al.hdg * Math.PI / 180, k0 = al.spd * dt / 3600; al.x += Math.sin(q0) * k0; al.y += Math.cos(q0) * k0; return; }
     const a = al.ai;
@@ -346,8 +347,7 @@
     for (const c of contacts) if (c.ai && c.ai.fix && (c.ai.fix.t -= dt) <= 0) c.ai.fix = null;
   }
   // ---- enemy ship state: same station damage rules as ours, own defenses (SAM vs ASM; decoy, ECM, CIWS vs SSM) ----
-  function initEnemy(c, seed) { c.team = "red"; c.rng = { seed: seed | 0 }; c.dead = [false, false, false, false]; c.sunk = false; c.wreck = false; c.ecm = false;
-    c.def = { decoy: CFG.DEFENSE.DECOY.AMMO, sam: CFG.DEFENSE.SAM.AMMO, cd: 0, sams: [] }; }
+  function initEnemy(c, seed) { initUnit(c, "red", "ai", seed); }
   function resetEnemy(c) { initEnemy(c, c.rng ? c.rng.seed : 1); if (c.ai) resetAi(c.ai); }
   function aiDefStep(c, missiles, dt) { defStep(c, missiles, dt, m => (m.side === "own" || m.side === "ally") && m.tid === c.id); } // missiles from the player or the ally
   function allyDefStep(al, missiles, dt) { defStep(al, missiles, dt, m => m.side === "enemy" && m.tid === al.id); } // ally defends itself with the same rules/numbers
@@ -386,7 +386,7 @@
   function resetAi(a) { a.state = "patrol"; a.known = null; a.idp = 0; a.lost = 0; a.hb = 0; a.il = 0; a.hears = null; a.fix = null; a.tracks = false; a.q = 0; a.pid = null; a.fr = {}; a.cd = 0; a.ammo = { ssm: 8, asm: 4 }; }
   // ---- team-agnostic AI: any unit with `ai` senses and fires at every unit of the other team (`team`) ----
   const keyOf = u => u.id === undefined ? "own" : u.id; // the player ship has no id
-  const isShip = u => u.id === undefined;
+  const isShip = u => u.ctl === "human"; // the player ship = the unit under human control
   const relOf = u => isShip(u) ? u.rel : "host"; // how identification resolves: the player ship carries its own `rel`, every AI/contact unit counts as hostile
   const foesOf = (c, ship, ally, contacts) => [ship, ally].concat(contacts || []).filter(u => u && u !== c && u.team !== c.team); // player ship first
   function bindPrimary(a, foes) { // the primary foe's track lives in the legacy fields of `a` (tracks, q, lx, ly, known...), the others in a.fr[id]
