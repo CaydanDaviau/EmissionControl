@@ -295,10 +295,10 @@ test("LINK toggles, refuses under EMCON / destroyed sensors, and is heard by ene
   ship.dead[1] = true; assert.ok(/Sensors/.test(Sim.toggleLink(ship, false)));
   const s2 = Sim.newShip(), c = mkAi(20, 70); Sim.toggleLink(s2, false); run(dt => Sim.aiStep(c, s2, false, dt), 20); assert.ok(c.ai.hears, "radar off, LINK on: heard");
 });
-test("ally holds a slot 5 nm abeam, follows our course and speed", () => {
+test("ally holds its slot abeam, follows our course and speed", () => {
   const ship = Sim.newShip(), al = Sim.newAlly(0, 0); ship.spd = 15; ship.hdg = 0;
-  run(dt => { ship.y += ship.spd * dt / 3600; Sim.allyStep(al, ship, dt); }, 1500);
-  assert.ok(Math.abs(al.x - 5) < 0.5 && Math.abs(al.y - ship.y) < 0.5, al.x + "," + (al.y - ship.y)); assert.ok(Math.abs(al.spd - 15) < 3);
+  run(dt => { ship.y += ship.spd * dt / 3600; Sim.allyStep(al, ship, dt); }, 5000);
+  assert.ok(Math.abs(al.x - Sim.CFG.ALLY.OFFSET) < 0.5 && Math.abs(al.y - ship.y) < 0.5, al.x + "," + (al.y - ship.y)); assert.ok(Math.abs(al.spd - 15) < 3);
 });
 test("fix marker: both ESM lines fresh and crossing -> marker for 5 s, then gone", () => {
   const ship = Sim.newShip(), al = Sim.newAlly(5, 0), esm = Sim.newEsm(1), esmA = Sim.newEsm(2), c = mk(0, 40, { emit: { name: "X", range: 35 } }), fixes = [];
