@@ -237,7 +237,7 @@ const EDGE=40; // enemy spawn: 40 nm north (just inside ESM range; radar horizon
 function mkEnemy(id,brgDeg,R,aiSeed,seed){ const c=Sim.newContact(id,brgDeg,R,{side:"enemy",speed:15,emit:{name:"Type 346B",range:70}}), r=brgDeg*Math.PI/180, x=Math.sin(r)*R, y=Math.cos(r)*R;
   c.ai=Sim.newAi(aiSeed,[[x+10,y+2],[x+10,y+14],[x-10,y+14],[x-10,y+2]]); c.hdg=90; Sim.initEnemy(c,seed); return c; }
 const contacts=[ mkEnemy(1,0,EDGE,20261114,4242), mkEnemy(2,70,38,20261115,4343) ]; // two enemies, both inside each other's ESM range of us
-const fixes=[], ally=Sim.newAlly(5,0), esmA=Sim.newEsm(20261113), all=()=>contacts.concat(fixes); // fixes = ESM crossing markers (5 s)
+const fixes=[], ally=Sim.newAlly(15,0), esmA=Sim.newEsm(20261113), all=()=>contacts.concat(fixes); // fixes = ESM crossing markers (5 s)
 const cid=v=>/^\d+$/.test(String(v))?+v:v, lbl=c=>c.marker?"FIX E"+c.esmNo:String(c.id).padStart(4,"0"); let linkMsg="";
 const missiles=[]; // own missiles in flight
 const radar=Sim.newRadar(20261111), esm=Sim.newEsm(20261112);
