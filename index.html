@@ -325,11 +325,11 @@ function draw(){
     let al=1; if(!c.tracked) al=0.3; else al=1-0.65*Math.min(1,(radar.t-c.lastHit)/Sim.CFG.RADAR.PERIOD);
     g.globalAlpha=al; g.strokeStyle=COL[c.cls];
     if(!c.tracked) g.setLineDash([3,3]);
-    if(c.cls==="ally"){ g.beginPath(); g.arc(0,0,5.5,0,Math.PI*2); g.stroke(); } else g.strokeRect(-5,-5,10,10);
+    if(c.cls==="ally"){ g.beginPath(); g.arc(0,0,5.5,0,Math.PI*2); g.stroke(); } else if(!c.sunk) g.strokeRect(-5,-5,10,10);
     g.setLineDash([]); g.globalAlpha=1;
     if(c.sunk){ g.strokeStyle="#ff4a4a"; g.lineWidth=2; g.beginPath(); g.moveTo(-8,-8); g.lineTo(8,8); g.moveTo(8,-8); g.lineTo(-8,8); g.stroke(); g.lineWidth=1.6; } // destroyed enemy: red X
     if(S.sel===c.id){ g.strokeStyle="#fff"; g.lineWidth=1; g.strokeRect(-9,-9,18,18); g.lineWidth=1.6; }
-    if(S.labels){ g.globalAlpha=Math.max(al,0.3); g.fillStyle=COL[c.cls]; g.textAlign="left"; g.textBaseline="middle"; g.fillText(String(c.id).padStart(4,"0"),11,0); }
+    if(S.labels&&!c.sunk){ g.globalAlpha=Math.max(al,0.3); g.fillStyle=COL[c.cls]; g.textAlign="left"; g.textBaseline="middle"; g.fillText(String(c.id).padStart(4,"0"),11,0); }
     g.restore();
   }
   { const dx=ally.x-ship.x, dy=ally.y-ship.y, r=Math.hypot(dx,dy); if(r<=range){ const b=Math.atan2(dx,dy)-rot*Math.PI/180, sx=cx+Math.sin(b)*r*px, sy=cy-Math.cos(b)*r*px; // ally A1: blue circle
@@ -407,14 +407,14 @@ const emcon=()=>!radar.on&&!ship.dead[1]; // radar silent by choice (a destroyed
 const IDN={unk:"NEUTRAL",ally:"ALLY",host:"HOSTILE"};
 let idHtml="";
 function identList(){
-  const L=contacts.filter(c=>c.seen).sort((a,b)=>a.id-b.id);
+  const L=contacts.filter(c=>c.seen&&!c.sunk).sort((a,b)=>a.id-b.id);
   const h=L.map(c=>{ const st=!c.tracked?"LOST":c.identified?"IDENTIFIED":c.idActive?Math.round(100*c.idProg)+"%":"";
     return `<div class="idr ${c.cls}${c.tracked?"":" lost"}${S.sel===c.id?" sel":""}" data-id="${c.id}"><span>${String(c.id).padStart(4,"0")}</span><span>${c.tracked?TAGN[c.cls]:"--"}</span><span>${rng(c).toFixed(1)} NM</span><span class="s">${st}</span></div>`; }).join("")
     ||'<div class="note" style="padding:6px">No contacts yet.</div>';
   if(h!==idHtml){ idHtml=h; $("idList").innerHTML=h; }
 }
 function identPanel(){
-  const c=contacts.find(k=>k.id===S.sel&&k.seen), T=c?Sim.identifyTime(c,ship):0, b=$("idB");
+  const c=contacts.find(k=>k.id===S.sel&&k.seen&&!k.sunk), T=c?Sim.identifyTime(c,ship):0, b=$("idB");
   $("idInfo").textContent=c?String(c.id).padStart(4,"0")+"  BRG "+pad3(brg(c))+"  RNG "+rng(c).toFixed(1)+"  "+(c.tracked?"Q "+Math.round(c.q*100)+"%":"LOST"):"No contact selected";
   b.textContent=!c?"IDENTIFY":c.idActive?"CANCEL":c.identified?"IDENTIFIED":"IDENTIFY";
   b.disabled=!c||(!c.idActive&&(c.identified||!c.tracked||!radar.on)); b.classList.toggle("on",!!c&&c.idActive);
@@ -426,11 +426,11 @@ function identPanel(){
 }
 $("idList").addEventListener("pointerdown",e=>{ const r=e.target.closest(".idr"); if(!r) return;
   const id=+r.dataset.id; S.sel=S.sel===id?null:id; identList(); identPanel(); fillTable(); });
-$("idB").onclick=()=>{ const c=contacts.find(k=>k.id===S.sel&&k.seen); if(!c) return;
+$("idB").onclick=()=>{ const c=contacts.find(k=>k.id===S.sel&&k.seen&&!k.sunk); if(!c) return;
   if(c.idActive) Sim.cancelIdentify(c); else Sim.startIdentify(c); identPanel(); identList(); };
 const TAGN={unk:"UNK",ally:"ALLY",host:"HOST"};
 function fillTable(){
-  const range=RANGES[S.ri], list=contacts.filter(c=>c.seen&&rng(c)<=range).sort((a,b)=>a.id-b.id);
+  const range=RANGES[S.ri], list=contacts.filter(c=>c.seen&&!c.sunk&&rng(c)<=range).sort((a,b)=>a.id-b.id);
   $("tcount").textContent=list.filter(c=>c.tracked).length;
   selPanel();
   if(!$("tList").classList.contains("open")) return;
@@ -443,7 +443,7 @@ function fillTable(){
   }
 }
 function selPanel(){
-  const c=contacts.find(k=>k.id===S.sel&&k.seen);
+  const c=contacts.find(k=>k.id===S.sel&&k.seen&&!k.sunk);
   $("selInfo").textContent=c?String(c.id).padStart(4,"0")+"  BRG "+pad3(brg(c))+"  RNG "+rng(c).toFixed(1)+"  "+(c.tracked?"Q "+Math.round(c.q*100)+"%":"LOST")+(c.identified?"  ID":""):"No contact selected";
   document.querySelectorAll(".tags button").forEach(b=>{ b.disabled=!(c&&c.tracked&&!c.identified); b.classList.toggle("on",!!c&&c.tracked&&c.cls===b.dataset.t); });
 }
@@ -455,7 +455,7 @@ const wh={t:"",w:"",m:""};
 const mmss=sec=>Math.floor(sec/60)+":"+String(Math.floor(sec%60)).padStart(2,"0");
 function wpnList(){
   const slot=S.ws!=null?ship.loadout[S.ws]:null, WR=slot?Sim.CFG.WEAPONS[slot.w].range:0;
-  const L=all().filter(c=>c.seen).sort((a,b)=>(a.marker?1:0)-(b.marker?1:0)||(a.marker?a.t-b.t:a.id-b.id));
+  const L=all().filter(c=>c.seen&&!c.sunk).sort((a,b)=>(a.marker?1:0)-(b.marker?1:0)||(a.marker?a.t-b.t:a.id-b.id));
   const t=L.map(c=>{ const out=slot&&c.tracked&&rng(c)>WR;
     return `<div class="idr ${c.cls}${c.tracked?"":" lost"}${S.sel===c.id?" sel":""}" data-id="${c.id}"><span>${lbl(c)}</span><span>${c.marker?"FIX":c.tracked?TAGN[c.cls]:"--"}</span><span>${rng(c).toFixed(1)} NM</span><span class="s">${!c.tracked?"LOST":out?"OUT OF RANGE":""}</span></div>`; }).join("")
     ||'<div class="note" style="padding:6px">No contacts yet.</div>';
@@ -469,7 +469,7 @@ function wpnList(){
   if(m!==wh.m){ wh.m=m; $("mList").innerHTML=m; }
 }
 function wpnPanel(){
-  const c=all().find(k=>k.id===S.sel&&k.seen), f=ship.fire, b=$("fireB"), why=Sim.fireCheck(ship,S.ws,c);
+  const c=all().find(k=>k.id===S.sel&&k.seen&&!k.sunk), f=ship.fire, b=$("fireB"), why=Sim.fireCheck(ship,S.ws,c);
   $("wtInfo").textContent=c?lbl(c)+"  BRG "+pad3(brg(c))+"  RNG "+rng(c).toFixed(1)+"  "+(c.marker?"ESM FIX":c.tracked?"Q "+Math.round(c.q*100)+"%":"LOST"):"No contact selected";
   b.textContent=f?"ABORT  "+Math.ceil(f.t):"FIRE"; b.classList.toggle("cd",!!f); b.disabled=!f&&!!why;
   $("fireNote").textContent=f?"Launching in "+f.t.toFixed(1)+" s. Needs the radar track and range.":why?why:
@@ -481,7 +481,7 @@ $("wtList").addEventListener("pointerdown",e=>{ const r=e.target.closest(".idr")
   const id=cid(r.dataset.id); S.sel=S.sel===id?null:id; wpnRefresh(); });
 $("wList").addEventListener("pointerdown",e=>{ const r=e.target.closest(".wr"); if(!r) return;
   const i=+r.dataset.i; S.ws=S.ws===i?null:i; wpnRefresh(); });
-$("fireB").onclick=()=>{ const c=all().find(k=>k.id===S.sel&&k.seen);
+$("fireB").onclick=()=>{ const c=all().find(k=>k.id===S.sel&&k.seen&&!k.sunk);
   if(ship.fire) Sim.cancelFire(ship); else Sim.startFire(ship,S.ws,c); wpnPanel(); };
 
 // ---- defense (DEFENSE tab): incoming list, SAM, CIWS target, decoys ----
@@ -550,7 +550,7 @@ cv.addEventListener("pointerdown",e=>{
   const r=cv.getBoundingClientRect(), mx=e.clientX-r.left, my=e.clientY-r.top;
   const G=scopeGeom(), range=RANGES[S.ri], px=G.R/range, rot=S.hup?ship.hdg:0;
   let best=null,bd=22;
-  for(const c of all()){ if(!c.seen||rng(c)>range) continue; const p=proj(c,G,px,rot), d=Math.hypot(p.x-mx,p.y-my); if(d<bd){bd=d;best=c;} }
+  for(const c of all()){ if(!c.seen||c.sunk||rng(c)>range) continue; const p=proj(c,G,px,rot), d=Math.hypot(p.x-mx,p.y-my); if(d<bd){bd=d;best=c;} }
   S.sel=best?best.id:null; fillTable();
 });
 

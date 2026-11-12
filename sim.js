@@ -13,7 +13,7 @@
     RADAR: { HORIZON: 32, RANGE: 70, H_ANT: 100, PERIOD: 4, RCS_REF: 10000, Q_HIT: 0.35, Q_MISS: 0.08, Q_DROP: 0.10 },
     // ESM (passive): hears emitting radars, bearing only. Own-ship data, per-ship later.
     // Detect range = RANGE_FACTOR * emitter radar range. No horizon cap for now (user's choice; H_ANT and DUCT are unused).
-    ESM: { H_ANT: 100, RANGE_FACTOR: 2, DUCT: 1.3, INTERVAL: 2, SIGMA: 10, HOLD: 15 },
+    ESM: { H_ANT: 100, RANGE_FACTOR: 2, DUCT: 1.3, INTERVAL: 2, SIGMA: 5, HOLD: 15 },
     // Identify: needs a continuous radar track (real time, like all sensors). Takes longer at long range and for low-RCS (stealthy) contacts. Track lost = reset to 0.
     // Weapons (game data; per-ship loadouts later). range nm, speed kt, turn deg/s
     WEAPONS: { ssm: { name: "SSM", model: "RGM-84", range: 70, speed: 480, turn: 10, dmg: "SSM" },
@@ -79,6 +79,7 @@
     const inc = 360 / CFG.RADAR.PERIOD * dt, a0 = r.ang;
     r.ang = norm(a0 + inc); r.t += dt;
     for (const c of contacts) {
+      if (c.sunk) { c.tracked = false; c.q = 0; c.idActive = false; continue; } // destroyed: no longer tracked
       const dx = c.x - ship.x, dy = c.y - ship.y;
       const b = norm(Math.atan2(dx, dy) * 180 / Math.PI), sd = norm(b - a0);
       if (sd <= 0 || sd > inc) continue;               // beam did not pass this contact
