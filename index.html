@@ -81,6 +81,12 @@ button:disabled{opacity:.35}
 .ov h1{margin:0 0 10px;letter-spacing:4px;font-weight:normal}
 .ov button{width:220px;padding:14px}
 tr.sel{background:#2a2f33}
+.dead>*:not(.stRow){display:none!important}
+.dead::after{content:"DESTROYED";display:flex;flex:1;align-items:center;justify-content:center;min-height:240px;color:#ff4a4a;font-size:22px;letter-spacing:3px}
+.navdead #secSpd,.navdead #secHdg{display:none}
+#navDeadSec{display:none;color:#ff4a4a;letter-spacing:2px;text-align:center}.navdead #navDeadSec{display:block}
+#banner{position:fixed;left:0;right:0;bottom:10px;text-align:center;pointer-events:none;z-index:10;color:#ff4a4a;font-weight:bold;font-size:15px;text-shadow:0 0 4px #000;display:none}
+.ov button.dbg{width:220px;padding:9px;font-size:12px;color:var(--dim);border-style:dashed}
 @media (max-width:760px){
   #navPage{flex-direction:column}
   #scopeWrap{flex:none;height:min(100vw,305px)}
@@ -115,7 +121,8 @@ tr.sel{background:#2a2f33}
               <div class="row tags"><button data-t="unk">UNKNOWN</button><button data-t="ally">ALLY</button><button data-t="host">HOSTILE</button></div>
             </div>
 
-            <div class="sec">
+            <div class="sec" id="navDeadSec">NAVIGATION DESTROYED<div class="note">No steering or speed control. Ship holds its last course and speed.</div></div>
+            <div class="sec" id="secSpd">
               <h5>SPEED</h5>
               <div class="row spd">
                 <button id="sRev">REVERSE</button>
@@ -126,7 +133,7 @@ tr.sel{background:#2a2f33}
               <div class="row"><span class="lbl">SPD</span><span class="rd"><span id="spdA">0.0</span> kt &rarr; <span id="spdO">0</span></span></div>
             </div>
 
-            <div class="sec">
+            <div class="sec" id="secHdg">
               <h5>HEADING</h5>
               <div class="row hdg">
                 <button id="hL">&lt;</button>
@@ -187,7 +194,8 @@ tr.sel{background:#2a2f33}
     </div>
   </div>
 </div>
-<div class="ov show" id="menu"><h1>EMCON</h1><button id="startB">START</button><button id="setB">&#9881; SETTINGS</button></div>
+<div class="ov show" id="menu"><h1>EMCON</h1><button id="startB">START</button><button id="setB">&#9881; SETTINGS</button><button id="dbgS" class="dbg">DEBUG: SSM AT ME</button><button id="dbgA" class="dbg">DEBUG: ASM AT ME</button><button id="dbgR" class="dbg">DEBUG: REPAIR / RESET</button></div>
+<div id="banner"></div>
 <div class="ov" id="settings"><h1>SETTINGS</h1><div class="row"><span class="lbl">Radar sweep</span><button id="sweepB" style="width:100px">On</button></div><button id="backB">BACK</button></div>
 <script src="sim.js"></script>
 <script>
@@ -221,6 +229,7 @@ const missiles=[]; // own missiles in flight
 const radar=Sim.newRadar(20261111), esm=Sim.newEsm(20261112);
 let sweepOn=true; try{ sweepOn=localStorage.getItem("emcon.sweep")!=="0"; }catch(e){}
 const S={paused:true,ri:4,rings:true,labels:true,grid:true,sel:null,hup:false,ts:0,ws:null};
+let blink=0,seenHit=0,bannerT=0;
 const COL={own:"#fff",ally:"#4da3ff",unk:"#ffd83a",host:"#ff4a4a"};
 
 const cv=$("cv"),g=cv.getContext("2d");
@@ -311,12 +320,16 @@ function draw(){
     g.save(); g.translate(sx,sy); g.strokeStyle=mc; g.fillStyle=mc; g.lineWidth=1.5;
     const R=7, h=0.8660254; // hollow equilateral triangle, tip along heading
     g.beginPath(); g.moveTo(ux*R,uy*R); g.lineTo(R*(-0.5*ux-h*uy),R*(-0.5*uy+h*ux)); g.lineTo(R*(-0.5*ux+h*uy),R*(-0.5*uy-h*ux)); g.closePath(); g.stroke();
-    if(S.labels){ g.font="11px monospace"; g.textAlign="left"; g.textBaseline="middle"; g.fillText("M"+m.n,10,-10); }
+    if(S.labels){ g.font="11px monospace"; g.textAlign="left"; g.textBaseline="middle"; g.fillText(m.lbl||"M"+m.n,10,-10); }
     g.restore(); }
-  // own ship: white square + short heading line
-  { const a=A(ship.hdg); g.strokeStyle="#fff"; g.lineWidth=1.6;
+  // missile lock warning: circle around the scope border, blinks red/white
+  if(S.lock){ g.save(); g.strokeStyle=blink?"#fff":"#ff3b3b"; g.lineWidth=3; g.beginPath(); g.arc(cx,cy,R+24,0,Math.PI*2); g.stroke(); g.restore(); }
+  // own ship: white square + short heading line (red while sinking), permanent red X once the wreck has stopped
+  if(ship.wreck){ g.strokeStyle="#ff4a4a"; g.lineWidth=2.5; g.beginPath(); g.moveTo(cx-9,cy-9); g.lineTo(cx+9,cy+9); g.moveTo(cx+9,cy-9); g.lineTo(cx-9,cy+9); g.stroke(); }
+  else { const a=A(ship.hdg); g.strokeStyle=ship.sunk?"#ff4a4a":"#fff"; g.lineWidth=1.6;
     g.strokeRect(cx-5,cy-5,10,10);
     g.beginPath(); g.moveTo(cx+Math.cos(a)*5,cy+Math.sin(a)*5); g.lineTo(cx+Math.cos(a)*20,cy+Math.sin(a)*20); g.stroke(); }
+  if(ship.sunk){ g.fillStyle="#ff4a4a"; g.font="bold 12px monospace"; g.textAlign="center"; g.textBaseline="middle"; g.fillText(ship.wreck?"WRECK":"SHIP DESTROYED",cx,cy-24); }
 }
 
 // ---- HUD / text ----
@@ -416,7 +429,7 @@ function wpnList(){
     ||'<div class="note" style="padding:6px">No contacts yet.</div>';
   const w=ship.loadout.map((l,i)=>{ const d=Sim.CFG.WEAPONS[l.w];
     return `<div class="wr${S.ws===i?" sel":""}" data-i="${i}"><span>${d.model}</span><span>${d.name}</span><span>${d.range} NM</span><span class="s am">${l.ammo}</span></div>`; }).join("");
-  const m=missiles.map(k=>{ const c=contacts.find(q=>q.id===k.tid), d=Math.hypot(c.px-k.x,c.py-k.y);
+  const m=missiles.filter(k=>k.tid!=="own").map(k=>{ const c=contacts.find(q=>q.id===k.tid), d=Math.hypot(c.px-k.x,c.py-k.y);
     return `<div class="srow"><span class="n">M${k.n}</span><span>&rarr; ${String(k.tid).padStart(4,"0")}</span><span class="s">${d.toFixed(1)} NM &middot; ETA ${mmss(d/k.spd*3600)}</span></div>`; }).join("")
     ||'<div class="note">None in flight.</div>';
   if(t!==wh.t){ wh.t=t; $("wtList").innerHTML=t; }
@@ -441,12 +454,13 @@ $("fireB").onclick=()=>{ const c=contacts.find(k=>k.id===S.sel&&k.seen);
 
 // ---- controls ----
 $("tHead").onclick=()=>{ $("tList").classList.toggle("open"); fillTable(); };
-$("sRev").onclick=()=>ship.ordSpd=Sim.CFG.REVERSE;
-$("sStop").onclick=()=>ship.ordSpd=0;
-$("sCru").onclick=()=>ship.ordSpd=Sim.CFG.CRUISE;
-$("sFlk").onclick=()=>ship.ordSpd=Sim.CFG.FLANK;
+const setSpd=v=>{ if(!ship.dead[0]) ship.ordSpd=v; }; // destroyed NAVIGATION: no orders
+$("sRev").onclick=()=>setSpd(Sim.CFG.REVERSE);
+$("sStop").onclick=()=>setSpd(0);
+$("sCru").onclick=()=>setSpd(Sim.CFG.CRUISE);
+$("sFlk").onclick=()=>setSpd(Sim.CFG.FLANK);
 
-function setOrdHdg(v){ ship.ordHdg=Sim.norm(v); $("hdgIn").value=pad3(ship.ordHdg); }
+function setOrdHdg(v){ if(ship.dead[0]) return; ship.ordHdg=Sim.norm(v); $("hdgIn").value=pad3(ship.ordHdg); }
 function holdBtn(el,fn){
   let t=0,i=0; const stop=()=>{clearTimeout(t);clearInterval(i);};
   el.addEventListener("pointerdown",e=>{ e.preventDefault(); stop(); fn(); t=setTimeout(()=>{i=setInterval(fn,60);},400); });
@@ -456,7 +470,7 @@ function holdBtn(el,fn){
 holdBtn($("hL"),()=>setOrdHdg(ship.ordHdg-1));
 holdBtn($("hR"),()=>setOrdHdg(ship.ordHdg+1));
 const hin=$("hdgIn");
-function commitHdg(){ const v=parseInt(hin.value,10); if(!isNaN(v)) ship.ordHdg=Sim.norm(v); hin.value=pad3(ship.ordHdg); }
+function commitHdg(){ const v=parseInt(hin.value,10); if(!isNaN(v)&&!ship.dead[0]) ship.ordHdg=Sim.norm(v); hin.value=pad3(ship.ordHdg); }
 hin.addEventListener("focus",()=>hin.select());
 hin.addEventListener("input",()=>{ hin.value=hin.value.replace(/\D/g,""); if(hin.value.length===3){ commitHdg(); hin.blur(); } });
 hin.addEventListener("keydown",e=>{ if(e.key==="Enter"){ commitHdg(); hin.blur(); } });
@@ -487,16 +501,27 @@ $("setB").onclick=()=>{ $("menu").classList.remove("show"); $("settings").classL
 $("backB").onclick=()=>{ $("settings").classList.remove("show"); $("menu").classList.add("show"); };
 $("sweepB").onclick=()=>{ sweepOn=!sweepOn; try{localStorage.setItem("emcon.sweep",sweepOn?"1":"0");}catch(e){} sweepUi(); };
 sweepUi();
+// ---- damage: destroyed stations show DESTROYED; debug buttons live in the menu ----
+function applyDmg(){ $("sensPage").classList.toggle("dead",ship.dead[1]); $("wpnPage").classList.toggle("dead",ship.dead[2]);
+  $("pg3").classList.toggle("dead",ship.dead[3]); $("navPage").classList.toggle("navdead",ship.dead[0]); }
+function dbgFire(w){ Sim.debugMissile(ship,missiles,w); $("startB").textContent="RESUME"; showMenu(false); }
+$("dbgS").onclick=()=>dbgFire("ssm"); $("dbgA").onclick=()=>dbgFire("asm");
+$("dbgR").onclick=()=>{ Sim.resetShip(ship); radar.on=true; missiles.length=0; bannerT=0; applyDmg(); sensUi(); };
 
 // ---- loop ----
 let last=performance.now();
 function frame(t){
   const rdt=Math.min(0.1,(t-last)/1000); last=t; let sdt=rdt*TS[S.ts]; // rdt = real time (radar), sdt = scaled (ship motion)
-  if(!S.paused){ while(sdt>0){ const h=Math.min(0.5,sdt); Sim.step(ship,h); for(const c of contacts) Sim.stepContact(c,h); Sim.stepMissiles(missiles,contacts,h); sdt-=h; }
-    Sim.radarStep(radar,ship,contacts,rdt); Sim.esmStep(esm,ship,contacts,rdt); Sim.identifyStep(contacts,rdt,radar.on,ship); Sim.fireStep(ship,contacts,missiles,rdt); } // sensors run in real time
+  if(!S.paused){ while(sdt>0){ const h=Math.min(0.5,sdt); Sim.step(ship,h); for(const c of contacts) Sim.stepContact(c,h); Sim.stepMissiles(missiles,contacts,h,ship); sdt-=h; }
+    if(ship.dead[1]){ radar.on=false; for(const c of contacts) c.esm=null; } // sensors destroyed: radar dead, ESM deaf
+    Sim.radarStep(radar,ship,contacts,rdt); if(!ship.dead[1]) Sim.esmStep(esm,ship,contacts,rdt); Sim.identifyStep(contacts,rdt,radar.on,ship); Sim.fireStep(ship,contacts,missiles,rdt); } // sensors run in real time
+  blink=Math.floor(t/300)%2; S.lock=!ship.wreck&&missiles.some(m=>m.tid==="own"); // enemy missile aimed at us
+  $("top").style.borderBottom=S.lock?"4px solid "+(blink?"#fff":"#ff3b3b"):"";
+  if(ship.hitSeq!==seenHit){ seenHit=ship.hitSeq; $("banner").textContent=ship.hitMsg; bannerT=8; applyDmg(); }
+  if(bannerT>0) bannerT-=rdt; $("banner").style.display=bannerT>0?"block":"none";
   hud(); draw(); if(stIdx===1) identPanel(); if(stIdx===2) wpnPanel(); requestAnimationFrame(frame);
 }
-setInterval(()=>{fillTable();sensUi();wpnList();},500);
+setInterval(()=>{fillTable();sensUi();wpnList();applyDmg();},500);
 resize(); ui(); sensUi(); identPanel(); wpnList(); wpnPanel(); requestAnimationFrame(frame);
 </script>
 </body>

@@ -97,3 +97,29 @@ test("missile curves toward the last known position and ends there; ammo/ids tra
   assert.equal(m.n, 1); const h0 = m.hdg; run(dt => Sim.stepMissiles(ms, [c], dt), 2); assert.ok(m.hdg > h0, "turns toward east");
   run(dt => Sim.stepMissiles(ms, [c], dt), 300); assert.equal(ms.length, 0, "arrived and removed");
 });
+test("damage: SSM never hits NAVIGATION, ASM can; sinks at <=1 station left", () => {
+  let navSsm = 0, navAsm = 0;
+  for (let k = 0; k < 400; k++) {
+    const a = Sim.newShip(); a.rng.seed = k; const r = Sim.hitShip(a, "SSM"); if (r.lost.includes(0)) navSsm++;
+    assert.ok(r.lost.length <= 2 && (r.hit || !r.lost.length));
+    const b = Sim.newShip(); b.rng.seed = k; if (Sim.hitShip(b, "ASM").lost.includes(0)) navAsm++;
+  }
+  assert.equal(navSsm, 0); assert.ok(navAsm > 20, "ASM hits NAV sometimes");
+  const s = Sim.newShip(); s.dead = [false, true, true, false]; s.rng.seed = 5;
+  let r; do { r = Sim.hitShip(s, "SSM"); } while (!r.hit);
+  assert.ok(s.sunk && r.sunk && s.dead.every(Boolean));
+});
+test("sunk ship decelerates to a stop, then is a permanent wreck", () => {
+  const s = Sim.newShip(); s.spd = s.ordSpd = 15; s.hdg = s.ordHdg = 90;
+  s.rng.seed = 1; s.dead = [false, true, true, false]; do { Sim.hitShip(s, "SSM"); } while (!s.sunk);
+  run(dt => Sim.step(s, dt), 20); assert.ok(s.spd > 10 && !s.wreck, "drifts, not instant");
+  run(dt => Sim.step(s, dt), 200); assert.ok(s.wreck && s.spd === 0);
+  const x = s.x; run(dt => Sim.step(s, dt), 10); assert.equal(s.x, x);
+});
+test("debug missile flies 20 nm to own ship and resolves a hit; weapons station dead blocks fire", () => {
+  const s = Sim.newShip(), ms = []; Sim.debugMissile(s, ms, "asm");
+  const m = ms[0]; assert.ok(Math.abs(Math.hypot(m.x, m.y) - 20) < 1e-9 && m.side === "enemy" && m.tid === "own");
+  run(dt => Sim.stepMissiles(ms, [], dt, s), 200); assert.equal(ms.length, 0); assert.equal(s.hitSeq, 1); assert.ok(/H1 (HIT|MISSED)/.test(s.hitMsg));
+  s.dead[2] = true; assert.equal(Sim.fireCheck(s, 0, { tracked: true, px: 0, py: 5 }), "Weapons station destroyed.");
+  Sim.resetShip(s); assert.ok(s.dead.every(d => !d) && !s.sunk);
+});

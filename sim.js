@@ -16,25 +16,32 @@
     ESM: { H_ANT: 100, RANGE_FACTOR: 2, DUCT: 1.3, INTERVAL: 2, SIGMA: 3, HOLD: 15 },
     // Identify: needs a continuous radar track (real time, like all sensors). Takes longer at long range and for low-RCS (stealthy) contacts. Track lost = reset to 0.
     // Weapons (game data; per-ship loadouts later). range nm, speed kt, turn deg/s
-    WEAPONS: { ssm: { name: "SSM", model: "RGM-84", range: 70, speed: 480, turn: 10 },
-      asm: { name: "ASM", model: "LRASM", range: 150, speed: 500, turn: 8 } },
+    WEAPONS: { ssm: { name: "SSM", model: "RGM-84", range: 70, speed: 480, turn: 10, dmg: "SSM" },
+      asm: { name: "ASM", model: "LRASM", range: 150, speed: 500, turn: 8, dmg: "ASM" } },
+    // Damage is per station (index 0..3 = NAVIGATION, SENSORS, WEAPONS, DEFENSE). second = chance a hit destroys a 2nd station; nav = can hit NAVIGATION.
+    // Ship is destroyed when 1 or fewer stations are left. Destroyed ship decelerates by DRIFT_DECEL (kt/s), then stays as a wreck.
+    DAMAGE: { P_HIT: 0.9, DRIFT_DECEL: 0.1, DEBUG_DIST: 20, SSM: { second: 0.15, nav: false }, ASM: { second: 0.55, nav: true } },
     WEAPON: { COUNTDOWN: 5, ARRIVE: 0.5 }, // launch countdown (s, real time); arrive radius (nm)
     IDENTIFY: { TIME: 20, D_REF: 10, MIN: 5, MAX: 90 } // TIME = seconds at D_REF nm for a normal (RCS_REF) contact
   };
+  const STN = ["NAVIGATION", "SENSORS", "WEAPONS", "DEFENSE"];
   const norm = a => ((a % 360) + 360) % 360;
   const diff = (to, from) => { const d = norm(to - from); return d > 180 ? d - 360 : d; };
 
   function newShip() { return { x: 0, y: 0, hdg: 0, spd: 0, ordHdg: 0, ordSpd: 0,
-    loadout: [{ w: "ssm", ammo: 8 }, { w: "asm", ammo: 4 }], fire: null, fireMsg: "", nMsl: 0 }; } // x east nm, y north nm
+    loadout: [{ w: "ssm", ammo: 8 }, { w: "asm", ammo: 4 }], fire: null, fireMsg: "", nMsl: 0,
+    dead: [false, false, false, false], sunk: false, wreck: false, rng: { seed: 20261113 }, nEnemy: 0, hitSeq: 0, hitMsg: "" }; } // x east nm, y north nm
 
   function step(s, dt) {
-    const ds = s.ordSpd - s.spd, ma = CFG.ACCEL * dt;
+    if (s.wreck) return;
+    const ds = s.ordSpd - s.spd, ma = (s.sunk ? CFG.DAMAGE.DRIFT_DECEL : CFG.ACCEL) * dt;
     s.spd = Math.abs(ds) <= ma ? s.ordSpd : s.spd + Math.sign(ds) * ma;
     const f = Math.max(CFG.TURN_MIN, Math.min(1, Math.abs(s.spd) / CFG.TURN_FULL_AT));
     const dh = diff(s.ordHdg, s.hdg), mt = CFG.TURN * f * dt;
     s.hdg = norm(Math.abs(dh) <= mt ? s.ordHdg : s.hdg + Math.sign(dh) * mt);
     const r = s.hdg * Math.PI / 180, d = s.spd * dt / 3600;
     s.x += Math.sin(r) * d; s.y += Math.cos(r) * d;
+    if (s.sunk && s.spd === 0) s.wreck = true; // stopped: permanent wreck
   }
 
   // ---- radar ----
@@ -138,6 +145,7 @@
 
   // ---- weapons: select target + weapon, countdown, launch. A launched missile flies toward the target's last known position. ----
   function fireCheck(ship, slot, c) { // "" if OK, else the reason it can't fire
+    if (ship.dead[2]) return "Weapons station destroyed.";
     if (slot == null) return "Select a weapon.";
     if (!c) return "Select a tracked contact.";
     if (!c.tracked) return "Target not tracked.";
@@ -159,13 +167,36 @@
     f.t -= dt; if (f.t > 0) return;
     const L = ship.loadout[f.slot], W = CFG.WEAPONS[L.w];
     L.ammo--; ship.fire = null; ship.fireMsg = "";
-    missiles.push({ n: ++ship.nMsl, w: L.w, tid: c.id, x: ship.x, y: ship.y, hdg: ship.hdg, spd: W.speed, fuel: W.range });
+    missiles.push({ n: ++ship.nMsl, side: "own", w: L.w, tid: c.id, x: ship.x, y: ship.y, hdg: ship.hdg, spd: W.speed, fuel: W.range });
   }
-  function stepMissiles(missiles, contacts, dt) { // scaled dt. Finished missiles are removed (no damage yet)
+  // ---- damage ----
+  function sink(ship) { ship.sunk = true; ship.dead = [true, true, true, true]; ship.ordSpd = 0; ship.ordHdg = ship.hdg; ship.fire = null; }
+  function hitShip(ship, prof) { // enemy missile reaches the ship: roll the hit, then which stations are lost. Returns {hit, lost:[station idx], sunk}
+    const D = CFG.DAMAGE, P = D[prof], res = { hit: false, lost: [], sunk: false };
+    if (ship.sunk || rand(ship.rng) >= D.P_HIT) return res;
+    res.hit = true;
+    const pool = [0, 1, 2, 3].filter(i => !ship.dead[i] && (i > 0 || P.nav));
+    const n = rand(ship.rng) < P.second ? 2 : 1;
+    for (let k = 0; k < n && pool.length; k++) res.lost.push(pool.splice(Math.floor(rand(ship.rng) * pool.length), 1)[0]);
+    for (const i of res.lost) ship.dead[i] = true;
+    if (ship.dead.filter(d => !d).length <= 1) { sink(ship); res.sunk = true; }
+    return res;
+  }
+  function debugMissile(ship, missiles, w) { // test: enemy missile from DEBUG_DIST nm, random bearing, aimed at own ship
+    const W = CFG.WEAPONS[w], b = rand(ship.rng) * 360, a = b * Math.PI / 180, d = CFG.DAMAGE.DEBUG_DIST;
+    ++ship.nEnemy;
+    missiles.push({ n: ship.nEnemy, lbl: "H" + ship.nEnemy, side: "enemy", w, tid: "own", x: ship.x + Math.sin(a) * d, y: ship.y + Math.cos(a) * d, hdg: norm(b + 180), spd: W.speed, fuel: W.range });
+  }
+  function resetShip(ship) { ship.dead = [false, false, false, false]; ship.sunk = false; ship.wreck = false; ship.fire = null; ship.fireMsg = ""; ship.hitMsg = ""; }
+  function stepMissiles(missiles, contacts, dt, ship) { // scaled dt. tid "own" = aimed at the own ship (true position). Others: last known position, no damage yet
     for (let i = missiles.length - 1; i >= 0; i--) {
-      const m = missiles[i], c = contacts.find(k => k.id === m.tid), W = CFG.WEAPONS[m.w];
-      const dx = c.px - m.x, dy = c.py - m.y;
-      if (Math.hypot(dx, dy) < CFG.WEAPON.ARRIVE) { missiles.splice(i, 1); continue; }
+      const m = missiles[i], W = CFG.WEAPONS[m.w], own = m.tid === "own", c = own ? null : contacts.find(k => k.id === m.tid);
+      const dx = (own ? ship.x : c.px) - m.x, dy = (own ? ship.y : c.py) - m.y;
+      if (Math.hypot(dx, dy) < CFG.WEAPON.ARRIVE) {
+        if (own) { const r = hitShip(ship, W.dmg); ship.hitSeq++;
+          ship.hitMsg = (m.lbl || "M" + m.n) + (!r.hit ? " MISSED" : r.sunk ? " HIT: SHIP DESTROYED" : " HIT: " + r.lost.map(k => STN[k]).join(" + ") + " DESTROYED"); }
+        missiles.splice(i, 1); continue;
+      }
       const want = norm(Math.atan2(dx, dy) * 180 / Math.PI), dh = diff(want, m.hdg), mt = W.turn * dt;
       m.hdg = norm(Math.abs(dh) <= mt ? want : m.hdg + Math.sign(dh) * mt); // turn-rate limited, so it curves on the scope
       const d = m.spd * dt / 3600, r = m.hdg * Math.PI / 180;
@@ -174,6 +205,6 @@
     }
   }
 
-  const api = { CFG, norm, diff, newShip, step, newRadar, newContact, pDetect, radarStep, setTag, stepContact, newEsm, pEsm, esmStep, startIdentify, cancelIdentify, identifyStep, identifyTime, fireCheck, startFire, cancelFire, fireStep, stepMissiles };
+  const api = { CFG, norm, diff, newShip, step, newRadar, newContact, pDetect, radarStep, setTag, stepContact, newEsm, pEsm, esmStep, startIdentify, cancelIdentify, identifyStep, identifyTime, fireCheck, startFire, cancelFire, fireStep, stepMissiles, hitShip, debugMissile, resetShip, STN };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.Sim = api;
 })(typeof self !== "undefined" ? self : this);
