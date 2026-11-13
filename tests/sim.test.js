@@ -535,3 +535,12 @@ test("AI identifies several foes in parallel, per foe; fires only at foes known 
   const r = c.ai.trk.own; r.q = 0.9; r.tracked = true; c.ai.trk.A1.q = 0; c.ai.trk.A1.tracked = false; c.ai.cd = 0;
   assert.equal(Sim.aiFireStep(c, s, [], 0.1, al), null); assert.ok(!c.fire, "no fire at a neutral");
 });
+
+test("LINK shares our tracks with the ally's picture (any distance); off or SENSORS dead = nothing", () => {
+  const s = Sim.newShip(), al = Sim.newAlly(0, 80), c = mkEn(60); al.ai = al.ai || Sim.newAi(9); c.x = 0; c.y = 25; s.x = 0; s.y = 0;
+  const t = Sim.trkOf(s, c); t.tracked = true; t.q = 0.8; t.px = 0; t.py = 25;
+  Sim.linkShare(s, al, [c]); assert.ok(!al.ai.trk[c.id], "LINK off: nothing shared");
+  s.link = true; Sim.linkShare(s, al, [c]); assert.ok(al.ai.trk[c.id].tracked && al.ai.trk[c.id].q === 0.8 && al.ai.trk[c.id].py === 25, "shared");
+  t.identified = true; t.cls = "host"; Sim.linkShare(s, al, [c]); assert.equal(al.ai.trk[c.id].known, "host");
+  const al2 = Sim.newAlly(0, 80); s.dead[1] = true; Sim.linkShare(s, al2, [c]); assert.ok(!al2.ai.trk[c.id], "sensors dead: nothing");
+});

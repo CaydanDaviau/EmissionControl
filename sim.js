@@ -420,6 +420,13 @@
   function emitOf(f, radarOn) { // what a unit radiates that an opposing ESM can hear (nm)
     if (isShip(f)) return Math.max(radarOn && !f.dead[1] ? CFG.RADAR.RANGE : 0, f.def.ecm && !f.dead[3] ? CFG.DEFENSE.ECM.EMIT : 0, f.link && !f.dead[1] ? CFG.LINK.EMIT : 0); // radar, jamming, LINK
     return f.emitting && f.emit && !f.sunk && !(f.dead && f.dead[1]) ? f.emit.range : 0; }
+  // LINK: while on (and our SENSORS alive) our radar tracks are shared with the linked friendly unit's AI picture: the ally "sees" what we track, at any distance.
+  // Shared tracks refresh its record each call (quality = best of both); an identified contact (our tag hostile) is also known hostile to it.
+  function linkShare(ship, al, contacts) {
+    if (!ship.link || ship.dead[1] || !al || al.sunk || !al.ai || (al.dead && al.dead[1])) return;
+    for (const c of contacts) { if (c.sunk || c.marker) continue; const t = trkOf(ship, c); if (!t.tracked) continue;
+      const r = rec(al.ai, c); r.tracked = true; r.q = Math.max(r.q, t.q); r.px = t.px; r.py = t.py;
+      if (t.identified && r.known === null) r.known = t.cls === "host" ? "host" : "neutral"; } }
   function aiStep(c, ship, radarOn, dt, ally, contacts) {
     const a = c.ai, A = CFG.AI; if (!a) return;
     a.t += dt; a.sw += dt; a.es += dt;
@@ -525,6 +532,6 @@
       case "ciws": setCiws(u, cmd.uid == null ? null : cmd.uid); return R(true);
     }
   }
-  const api = { command, trkOf, reloadStep, newTrk, toggleLink, newAlly, resetAlly, allyStep, stepUnit, launchMissile, rays, fixStep, aiFixStep, initEnemy, resetEnemy, aiDefStep, aiSamMove, allyDefStep, allySamMove, resetAi, aiIdTime, aiFireStep, newAi, aiStep, ciwsStep, ecmStep, toggleEcm, deployDecoy, launchSam, setCiws, stepDefense, reap, defCheck, CFG, norm, diff, newShip, step, newRadar, newContact, pDetect, radarStep, setTag, stepContact, newEsm, pEsm, esmStep, startIdentify, cancelIdentify, identifyStep, identifyTime, fireCheck, startFire, cancelFire, fireStep, stepMissiles, hitShip, debugMissile, resetShip, STN };
+  const api = { linkShare, command, trkOf, reloadStep, newTrk, toggleLink, newAlly, resetAlly, allyStep, stepUnit, launchMissile, rays, fixStep, aiFixStep, initEnemy, resetEnemy, aiDefStep, aiSamMove, allyDefStep, allySamMove, resetAi, aiIdTime, aiFireStep, newAi, aiStep, ciwsStep, ecmStep, toggleEcm, deployDecoy, launchSam, setCiws, stepDefense, reap, defCheck, CFG, norm, diff, newShip, step, newRadar, newContact, pDetect, radarStep, setTag, stepContact, newEsm, pEsm, esmStep, startIdentify, cancelIdentify, identifyStep, identifyTime, fireCheck, startFire, cancelFire, fireStep, stepMissiles, hitShip, debugMissile, resetShip, STN };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.Sim = api;
 })(typeof self !== "undefined" ? self : this);

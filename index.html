@@ -604,6 +604,7 @@ function frame(t){
   if(!S.paused){ while(sdt>0){ const h=Math.min(0.5,sdt); Sim.stepUnit(ship,h); Sim.stepUnit(ally,h,ship); for(const c of contacts) Sim.stepUnit(c,h); Sim.stepMissiles(missiles,contacts,h,ship,ally); Sim.stepDefense(ship,missiles,h); for(const c of contacts) Sim.aiSamMove(c,missiles,h); Sim.allySamMove(ally,missiles,h); sdt-=h; }
     if(ship.dead[1]){ radar.on=false; for(const c of contacts) c.esm=null; }
     if(emcon()){ ship.def.ecm=false; ship.link=false; } if(ship.dead[1]) ship.link=false;
+    Sim.linkShare(ship,ally,contacts);
     for(const c of contacts){ Sim.aiStep(c,ship,radar.on,rdt,ally,contacts); Sim.aiFireStep(c,ship,missiles,rdt,ally,contacts); Sim.aiDefStep(c,missiles,rdt); }
     Sim.aiStep(ally,ship,radar.on,rdt,ally,contacts); Sim.aiFireStep(ally,ship,missiles,rdt,ally,contacts); // the ally runs the same AI as the enemies (team blue): radar duty cycle, ESM, tracks, fires at hostile contacts
     Sim.allyDefStep(ally,missiles,rdt); // sensors destroyed: radar dead, ESM deaf
