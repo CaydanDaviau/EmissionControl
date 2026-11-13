@@ -131,14 +131,14 @@ test("enemy AI: patrol radar is duty-cycled (1/3 on) with no contact; it detects
   const far = S.newContact(1, 0, 400, { side: "enemy", speed: 15, emit: { name: "T", range: 35 } });
   far.ai = S.newAi(7, [[10, 23], [10, 35], [-10, 35], [-10, 23]]); far.hdg = 90;
   let on = 0, tot = 0;
-  for (let i = 0; i < 600; i++) { S.aiStep(far, ship, true, 1); S.stepContact(far, 1); tot++; if (far.emitting) on++; }
+  for (let i = 0; i < 600; i++) { S.aiStep(far, ship, 1); S.stepContact(far, 1); tot++; if (far.emitting) on++; }
   assert.ok(Math.abs(on / tot - 1 / 3) < 0.02); assert.equal(far.ai.state, "patrol"); assert.equal(far.ai.tracks, false);
   const c = S.newContact(1, 0, 21, { side: "enemy", speed: 15, emit: { name: "T", range: 35 } }); c.ai = S.newAi(7, null);
   let tracked = false, heard = false;
-  for (let i = 0; i < 600; i++) { S.aiStep(c, ship, true, 1); tracked = tracked || c.ai.tracks; heard = heard || !!c.ai.hears; }
+  for (let i = 0; i < 600; i++) { S.aiStep(c, ship, 1); tracked = tracked || c.ai.tracks; heard = heard || !!c.ai.hears; }
   assert.ok(tracked); assert.ok(heard);
   const c2 = S.newContact(2, 0, 21, { emit: { name: "T", range: 35 } }); c2.ai = S.newAi(7, [[0, 21]]);
-  ship.radar.on = false; for (let i = 0; i < 300; i++) S.aiStep(c2, ship, false, 1);
+  ship.radar.on = false; for (let i = 0; i < 300; i++) S.aiStep(c2, ship, 1);
   assert.ok(!c2.ai.hears); // our radar off: not heard
 });
 
@@ -158,8 +158,8 @@ test("AI fires only with a good track, one per cooldown; random weapon mix, ASM 
 });
 test("enemy ESM hears our jamming even with radar off; EMCON refuses and forces jamming off", () => {
   const ship = Sim.newShip(), c = mk(0, 20, { side: "enemy", emit: { name: "X", range: 35 } }); c.ai = Sim.newAi(5, null); ship.radar.on = false;
-  run(dt => Sim.aiStep(c, ship, false, dt), 120); assert.equal(c.ai.hears, null, "radar off, jamming off: silent");
-  ship.def.ecm = true; run(dt => Sim.aiStep(c, ship, false, dt), 60); assert.ok(c.ai.nHear > 0, "jamming is heard");
+  run(dt => Sim.aiStep(c, ship, dt), 120); assert.equal(c.ai.hears, null, "radar off, jamming off: silent");
+  ship.def.ecm = true; run(dt => Sim.aiStep(c, ship, dt), 60); assert.ok(c.ai.nHear > 0, "jamming is heard");
   assert.equal(Sim.toggleEcm(ship, true), "EMCON active: jamming unavailable."); assert.equal(ship.def.ecm, false);
   assert.ok(/ON/.test(Sim.toggleEcm(ship, false)) && ship.def.ecm, "can turn on without EMCON");
 });
@@ -167,7 +167,7 @@ test("enemy radar equals ours: same range and same RCS for our ship", () => {
   const A = Sim.CFG.AI; assert.equal(A.SHIP_RCS, Sim.CFG.RADAR.RCS_REF); assert.equal(A.SWEEP, Sim.CFG.RADAR.PERIOD);
   const near = Sim.newShip(), c1 = mk(0, 25, { side: "enemy", emit: { name: "X", range: Sim.CFG.RADAR.RANGE } }), c2 = mk(0, 40, { side: "enemy", emit: { name: "X", range: Sim.CFG.RADAR.RANGE } });
   c1.ai = Sim.newAi(7, null); c2.ai = Sim.newAi(7, null);
-  run(dt => { Sim.aiStep(c1, near, true, dt); Sim.aiStep(c2, near, true, dt); }, 120);
+  run(dt => { Sim.aiStep(c1, near, dt); Sim.aiStep(c2, near, dt); }, 120);
   assert.ok(c1.ai.dist !== undefined, "25 nm detected"); assert.equal(c2.ai.dist, undefined, "40 nm (beyond the 32 nm cap) never detected");
 });
 
@@ -180,20 +180,20 @@ test("our radar: sees a normal contact at 30 nm (inside the cap), a small one (r
 const mkAi = (range, emitRange) => { const c = mk(0, range, { side: "enemy", speed: 15, emit: { name: "X", range: emitRange || 70 } }); c.ai = Sim.newAi(3, null); return c; };
 test("AI identifies us (needs a continuous track), then engages when we are hostile and keeps radar on", () => {
   const ship = Sim.newShip(), c = mkAi(25); let sawId = false;
-  run(dt => { Sim.aiStep(c, ship, true, dt); if (c.ai.state === "id") sawId = true; }, 300);
+  run(dt => { Sim.aiStep(c, ship, dt); if (c.ai.state === "id") sawId = true; }, 300);
   assert.ok(sawId, "went through the id state"); assert.equal(c.ai.known, "host"); assert.equal(c.ai.state, "engage");
 });
 test("AI identifies a neutral and goes back to patrol; does not re-identify it", () => {
   const ship = Sim.newShip(); ship.rel = "neutral"; const c = mkAi(25);
-  run(dt => Sim.aiStep(c, ship, true, dt), 300);
+  run(dt => Sim.aiStep(c, ship, dt), 300);
   assert.equal(c.ai.known, "neutral"); assert.equal(c.ai.state, "patrol");
-  run(dt => Sim.aiStep(c, ship, true, dt), 60); assert.equal(c.ai.state, "patrol", "stays on patrol");
+  run(dt => Sim.aiStep(c, ship, dt), 60); assert.equal(c.ai.state, "patrol", "stays on patrol");
 });
 test("AI identify progress resets when the track is lost; gives up after GIVE_UP s without a track", () => {
   const ship = Sim.newShip(), c = mkAi(50); c.ai.state = "id"; c.ai.tracks = true; c.ai.q = 0.9; c.ai.idp = 0.6; c.ai.trk._.idActive = true;
-  Sim.aiStep(c, ship, true, 0.1); assert.ok(c.ai.idp > 0.6);
-  c.ai.tracks = false; c.ai.q = 0; ship.x = 9999; Sim.aiStep(c, ship, true, 0.1); assert.equal(c.ai.idp, 0, "reset");
-  run(dt => Sim.aiStep(c, ship, true, dt), Sim.CFG.AI.GIVE_UP + 5); assert.equal(c.ai.state, "patrol");
+  Sim.aiStep(c, ship, 0.1); assert.ok(c.ai.idp > 0.6);
+  c.ai.tracks = false; c.ai.q = 0; ship.x = 9999; Sim.aiStep(c, ship, 0.1); assert.equal(c.ai.idp, 0, "reset");
+  run(dt => Sim.aiStep(c, ship, dt), Sim.CFG.AI.GIVE_UP + 5); assert.equal(c.ai.state, "patrol");
 });
 test("hunting AI closes at flank when far, opens range when too close, circles inside the band", () => {
   const A = Sim.CFG.AI, hold = A.HOLD * 70;
@@ -207,8 +207,8 @@ test("hunting AI closes at flank when far, opens range when too close, circles i
 test("AI radar: always 20/60 duty, except ON while identifying a held track; back to duty after identification", () => {
   const ship = Sim.newShip(), c = mkAi(50); const A = Sim.CFG.AI;
   c.ai.state = "id"; c.ai.tracks = true; c.ai.q = 0.9; c.ai.t = A.DUTY_ON + 5; // duty window is OFF here
-  Sim.aiStep(c, ship, true, 0.1); assert.equal(c.emitting, true, "identifying with a track: radar on despite duty off");
-  c.ai.tracks = false; c.ai.q = 0; ship.x = 9999; Sim.aiStep(c, ship, true, 0.1); assert.equal(c.emitting, (c.ai.t % A.DUTY_PERIOD) < A.DUTY_ON, "contact lost: duty cycle");
+  Sim.aiStep(c, ship, 0.1); assert.equal(c.emitting, true, "identifying with a track: radar on despite duty off");
+  c.ai.tracks = false; c.ai.q = 0; ship.x = 9999; Sim.aiStep(c, ship, 0.1); assert.equal(c.emitting, (c.ai.t % A.DUTY_PERIOD) < A.DUTY_ON, "contact lost: duty cycle");
   const e = mkAi(50); e.ai.state = "engage"; e.ai.known = "host"; e.ai.tracks = true; e.ai.q = 0.9; e.ai.t = A.DUTY_ON + 5;
   Sim.aiStep(e, Sim.newShip(), true, 0.1); assert.equal(e.emitting, false, "engage: duty cycle applies");
   e.ai.t = 10; Sim.aiStep(e, Sim.newShip(), true, 0.1); assert.equal(e.emitting, true, "engage: on in the duty window");
@@ -230,7 +230,7 @@ test("our missile at the last known position hits the enemy (stations lost) or m
 test("enemy stations: sensors dead = radar/ESM off; weapons dead = no fire; destroyed = drifts to a wreck", () => {
   const ship = Sim.newShip(), c = mkEn(20), ms = []; c.ai.state = "engage"; c.ai.tracks = true; c.ai.q = 0.9;
   c.dead[2] = true; assert.equal(Sim.aiFireStep(c, ship, ms, 1), null); c.dead[2] = false;
-  c.dead[1] = true; run(dt => Sim.aiStep(c, ship, true, dt), 10); assert.equal(c.emitting, false); assert.equal(c.ai.tracks, false);
+  c.dead[1] = true; run(dt => Sim.aiStep(c, ship, dt), 10); assert.equal(c.emitting, false); assert.equal(c.ai.tracks, false);
   c.dead = [true, true, true, true]; c.sunk = true; c.spd = 15; run(dt => Sim.stepContact(c, dt), 20); assert.equal(c.spd, 0); assert.ok(c.wreck);
   assert.equal(Sim.fireCheck(Sim.newShip(), 0, Object.assign(c, { tracked: true })), "Target destroyed.");
 });
@@ -256,8 +256,8 @@ test("horizon cap: radar and ESM detect nothing beyond it (radar 32 nm, ESM x1.3
   const H = Sim.CFG.RADAR.HORIZON, big = { rcs: 1e9, emit: { range: 500 }, emitting: true };
   assert.equal(Sim.pDetect(H + 1, big), 0); assert.ok(Sim.pDetect(H - 5, { rcs: 10000 }) > 0.95);
   assert.equal(Sim.pEsm(H * Sim.CFG.ESM.DUCT + 1, big), 0); assert.ok(Sim.pEsm(H + 5, big) > 0.99);
-  const ship = Sim.newShip(), c = mkAi(H + 5, 500); c.ai.state = "patrol"; c.ai.t = 0; run(dt => Sim.aiStep(c, ship, true, dt), 16); assert.equal(c.ai.tracks, false, "enemy radar also capped");
-  c.y = H - 5; c.ai.t = 0; run(dt => Sim.aiStep(c, ship, true, dt), 12); assert.ok(c.ai.tracks);
+  const ship = Sim.newShip(), c = mkAi(H + 5, 500); c.ai.state = "patrol"; c.ai.t = 0; run(dt => Sim.aiStep(c, ship, dt), 16); assert.equal(c.ai.tracks, false, "enemy radar also capped");
+  c.y = H - 5; c.ai.t = 0; run(dt => Sim.aiStep(c, ship, dt), 12); assert.ok(c.ai.tracks);
 });
 
 test("decoys only seduce missiles within 4 nm (player)", () => {
@@ -269,15 +269,15 @@ test("decoys only seduce missiles within 4 nm (player)", () => {
 test("AI ESM investigation: hears us without a track -> heads along the bearing; radar track -> identify; EMCON -> gives up after INV_HOLD", () => {
   const ship = Sim.newShip(), A = Sim.CFG.AI; ship.y = 40; // we are due north at 40 nm, our radar on (heard), enemy radar cannot see that far (cap 32)
   const c = mkAi(0, 70); c.hdg = 90; c.ai.wp = null;
-  run(dt => Sim.aiStep(c, ship, true, dt), 20); assert.equal(c.ai.state, "inv", "ESM contact starts an investigation"); assert.equal(c.ai.tracks, false);
+  run(dt => Sim.aiStep(c, ship, dt), 20); assert.equal(c.ai.state, "inv", "ESM contact starts an investigation"); assert.equal(c.ai.tracks, false);
   assert.ok(Math.abs(Sim.diff(c.ai.hb, 0)) < 40, "bearing roughly north");
-  run(dt => { Sim.aiStep(c, ship, true, dt); Sim.stepContact(c, dt); }, 600); assert.ok(c.y > 3, "moved north along the bearing"); assert.equal(c.spd, Sim.CFG.FLANK);
+  run(dt => { Sim.aiStep(c, ship, dt); Sim.stepContact(c, dt); }, 600); assert.ok(c.y > 3, "moved north along the bearing"); assert.equal(c.spd, Sim.CFG.FLANK);
   // inside radar range the track starts identification
-  ship.x = c.x; ship.y = c.y + 20; run(dt => Sim.aiStep(c, ship, true, dt), 70); assert.ok(["id", "engage"].includes(c.ai.state), c.ai.state);
+  ship.x = c.x; ship.y = c.y + 20; run(dt => Sim.aiStep(c, ship, dt), 70); assert.ok(["id", "engage"].includes(c.ai.state), c.ai.state);
   // EMCON: no more ESM, after INV_HOLD back to patrol
-  const d = mkAi(0, 70); d.ai.state = "inv"; d.ai.hb = 0; d.ai.il = 0; ship.x = 0; ship.y = 300; run(dt => Sim.aiStep(d, ship, false, dt), A.INV_HOLD + 5); assert.equal(d.ai.state, "patrol");
+  const d = mkAi(0, 70); d.ai.state = "inv"; d.ai.hb = 0; d.ai.il = 0; ship.x = 0; ship.y = 300; run(dt => Sim.aiStep(d, ship, dt), A.INV_HOLD + 5); assert.equal(d.ai.state, "patrol");
   // neutral known: ignores ESM
-  const e = mkAi(0, 70); e.ai.known = "neutral"; ship.y = 40; run(dt => Sim.aiStep(e, ship, true, dt), 30); assert.equal(e.ai.state, "patrol");
+  const e = mkAi(0, 70); e.ai.known = "neutral"; ship.y = 40; run(dt => Sim.aiStep(e, ship, dt), 30); assert.equal(e.ai.state, "patrol");
 });
 
 // ---- LINK, ally, ESM fixes ----
@@ -295,7 +295,7 @@ test("LINK toggles, refuses under EMCON / destroyed sensors, and is heard by ene
   const ship = Sim.newShip(); assert.ok(!ship.link); Sim.toggleLink(ship, false); assert.equal(ship.link, true);
   assert.ok(/EMCON/.test(Sim.toggleLink(ship, true))); assert.equal(ship.link, false);
   ship.dead[1] = true; assert.ok(/Sensors/.test(Sim.toggleLink(ship, false)));
-  const s2 = Sim.newShip(), c = mkAi(20, 70); Sim.toggleLink(s2, false); run(dt => Sim.aiStep(c, s2, false, dt), 20); assert.ok(c.ai.hears, "radar off, LINK on: heard");
+  const s2 = Sim.newShip(), c = mkAi(20, 70); Sim.toggleLink(s2, false); run(dt => Sim.aiStep(c, s2, dt), 20); assert.ok(c.ai.hears, "radar off, LINK on: heard");
 });
 test("ally holds its slot abeam, follows our course and speed", () => {
   const ship = Sim.newShip(), al = Sim.newAlly(0, 0); ship.spd = 15; ship.hdg = 0;
@@ -317,7 +317,7 @@ test("firing at a fix: missile flies to the fixed point and hits only a ship wit
 });
 test("AI: linked enemies cross ESM bearings on us -> shared fix; fires at it when hostile known; missile acquires us only near the fix", () => {
   const ship = Sim.newShip(); ship.y = 30; const a = mkAi(0, 70), b = mkAi(0, 70); a.id = 1; b.id = 2; b.x = 25; b.y = 0; b.ai = Sim.newAi(4, null); Sim.initEnemy(a, 21); Sim.initEnemy(b, 22);
-  run(dt => { Sim.aiStep(a, ship, true, dt); Sim.aiStep(b, ship, true, dt); Sim.aiFixStep([a, b], dt); }, 20);
+  run(dt => { Sim.aiStep(a, ship, dt); Sim.aiStep(b, ship, dt); Sim.aiFixStep([a, b], dt); }, 20);
   assert.ok(a.ai.fix && b.ai.fix, "both hold a fix"); assert.ok(Math.hypot(a.ai.fix.x - 0, a.ai.fix.y - 30) < 80);
   assert.equal(Sim.aiFireStep(a, ship, [], 1), null, "does not know it is hostile: no shot"); a.ai.known = "host"; a.ai.fix = { x: 3, y: 38, t: 5, host: true }; a.ai.state = "patrol";
   const ms = []; a.ai.cd = 0; const m = shoot(a, ship, ms); assert.ok(m && m.tx === 3 && m.ty === 38, "fired at the fix (after the countdown)");
@@ -352,9 +352,9 @@ test("enemy missile at the ally hits it with the same station rules; sunk ally d
 test("enemy tracks the ally with its radar and fires at it when engaged; not at a destroyed ally", () => {
   const s = Sim.newShip(), al = Sim.newAlly(0, 30), c = mkEn(60); c.x = 0; c.y = 0; s.x = 0; s.y = -90; // we are far out of reach, the ally is 30 nm away
   c.ai.state = "engage"; c.ai.known = "host"; c.ai.t = 0;
-  run(dt => { Sim.aiStep(c, s, true, dt, al); }, 30); assert.ok(c.ai.trk.A1 && c.ai.trk.A1.tracked && c.ai.trk.A1.q > Sim.CFG.AI.FIRE_Q, "solid track on the ally"); c.ai.trk.A1.known = "host";
+  run(dt => { Sim.aiStep(c, s, dt, al); }, 30); assert.ok(c.ai.trk.A1 && c.ai.trk.A1.tracked && c.ai.trk.A1.q > Sim.CFG.AI.FIRE_Q, "solid track on the ally"); c.ai.trk.A1.known = "host";
   const m = shoot(c, s, [], al); assert.ok(m && m.tid === "A1" && m.side === "enemy" && m.tx !== undefined, "fires at the ally, aimed at its last known position");
-  al.sunk = true; c.ai.cd = 0; run(dt => Sim.aiStep(c, s, true, dt, al), 5); assert.ok(!c.ai.trk.A1); assert.equal(shoot(c, s, [], al), null);
+  al.sunk = true; c.ai.cd = 0; run(dt => Sim.aiStep(c, s, dt, al), 5); assert.ok(!c.ai.trk.A1); assert.equal(shoot(c, s, [], al), null);
 });
 
 // ---- ally defends itself ----
@@ -374,7 +374,7 @@ test("ally SAMs an ASM aimed at it, decoys an SSM only inside range; destroyed D
 test("ally AI tracks an enemy, identifies it, fires, and the missile damages it", () => {
   const s = Sim.newShip(), al = Sim.newAlly(0, 0), c = mkEn(30); c.x = 0; c.y = 30; c.ai.t = 0; al.ai.t = 0; s.x = 0; s.y = -90;
   const ms = [], P = Sim.CFG.WEAPON; let fired = null;
-  run(dt => { Sim.aiStep(al, s, true, dt, al, [c]); fired = fired || Sim.aiFireStep(al, s, ms, dt, al, [c]); }, 200);
+  run(dt => { Sim.aiStep(al, s, dt, al, [c]); fired = fired || Sim.aiFireStep(al, s, ms, dt, al, [c]); }, 200);
   assert.equal(al.ai.known, "host", "ally identified the enemy as hostile"); assert.ok(fired, "ally fired");
   assert.equal(fired.side, "ally"); assert.equal(fired.tid, c.id); assert.ok(/^A\d/.test(fired.lbl));
   const sp = Sim.CFG.DAMAGE.P_HIT; Sim.CFG.DAMAGE.P_HIT = 1; c.rng.seed = 5;
@@ -386,7 +386,7 @@ test("enemy defenses engage the ally's missiles; enemy ESM hears the ally's rada
   const m = { uid: 9, n: 1, lbl: "A1", side: "ally", w: "asm", tid: c.id, x: 0, y: 5, hdg: 0, spd: 500, fuel: 100 }, SP = Sim.CFG.DEFENSE.SAM.P; Sim.CFG.DEFENSE.SAM.P = 1;
   run(dt => { Sim.aiDefStep(c, [m], dt); Sim.aiSamMove(c, [m], dt); }, 90, 0.1); Sim.CFG.DEFENSE.SAM.P = SP;
   assert.equal(m.state, "dead", "enemy SAM kills the ally's ASM");
-  al.ai.t = 0; run(dt => { Sim.aiStep(al, s, false, dt, al, [c]); Sim.aiStep(c, s, false, dt, al, [c]); }, 120); // ship radar silent: only the ally emits
+  al.ai.t = 0; run(dt => { Sim.aiStep(al, s, dt, al, [c]); Sim.aiStep(c, s, dt, al, [c]); }, 120); // ship radar silent: only the ally emits
   assert.ok(c.ai.nHear > 0, "enemy hears the ally's radar");
   const f = Sim.aiFireStep(al, s, [], 1, al, []); assert.equal(f, null, "no foes: nothing to fire at");
 });
@@ -403,7 +403,7 @@ test("ally escorts, then hunts a hostile it is identifying/engaging, and returns
 test("ally AI switches to the enemy it actually tracks (primary foe out of reach) and engages it", () => {
   const s = Sim.newShip(), al = Sim.newAlly(0, 0), far = mkEn(60), near = mkEn(25); far.id = 1; near.id = 2; far.x = 0; far.y = 60; near.x = 20; near.y = 15; s.x = 0; s.y = -90; al.ai.t = 0;
   const ms = []; let fired = null;
-  run(dt => { Sim.aiStep(al, s, true, dt, al, [far, near]); fired = fired || Sim.aiFireStep(al, s, ms, dt, al, [far, near]); }, 200);
+  run(dt => { Sim.aiStep(al, s, dt, al, [far, near]); fired = fired || Sim.aiFireStep(al, s, ms, dt, al, [far, near]); }, 200);
   assert.equal(al.ai.pid, 2, "primary follows the tracked enemy"); assert.equal(al.ai.known, "host"); assert.ok(fired && fired.tid === 2 && fired.side === "ally", "fired at the near enemy");
 });
 
@@ -432,7 +432,7 @@ test("launchMissile: one path for human, enemy and ally; ammo and labels", () =>
 
 test("AI track table: one record per foe, legacy names mirror the primary's record", () => {
   const s = Sim.newShip(), c = mkEn(20); c.ai.t = 0;
-  run(dt => Sim.aiStep(c, s, true, dt), 12);
+  run(dt => Sim.aiStep(c, s, dt), 12);
   assert.equal(c.ai.pid, "own"); assert.ok(c.ai.trk.own.tracked, "record exists for the foe");
   assert.equal(c.ai.tracks, c.ai.trk.own.tracked); assert.equal(c.ai.q, c.ai.trk.own.q);
   c.ai.known = "host"; assert.equal(c.ai.trk.own.known, "host", "writes through the legacy name land in the record");
@@ -490,7 +490,7 @@ test("AI decoy and ECM use the shared primitives: SSM within range is seduced or
 
 test("AI fire: countdown aborts if its weapons die; a stale aim point misses an ally; the seeker finds it when close", () => {
   const s = Sim.newShip(), al = Sim.newAlly(0, 30), c = mkEn(60); c.x = 0; c.y = 0; s.x = 0; s.y = -90; c.ai.state = "engage"; c.ai.known = "host"; c.ai.t = 0;
-  run(dt => Sim.aiStep(c, s, true, dt, al), 30); c.ai.trk.A1.known = "host"; const ms = [];
+  run(dt => Sim.aiStep(c, s, dt, al), 30); c.ai.trk.A1.known = "host"; const ms = [];
   Sim.aiFireStep(c, s, ms, 0.1, al); assert.ok(c.fire, "countdown running"); c.dead[2] = true; Sim.aiFireStep(c, s, ms, 0.1, al);
   assert.equal(c.fire, null, "weapons destroyed mid-countdown: aborted"); assert.equal(ms.length, 0); c.dead[2] = false; c.ai.cd = 0;
   const m = shoot(c, s, ms, al); assert.ok(m && m.tid === "A1"); al.y = 90; const l = [m]; m.x = m.tx; m.y = m.ty - 0.2; m.hdg = 0; // ally moved far from the point the missile aims at
@@ -511,12 +511,12 @@ test("stations: release blocks that station's commands, take restores; destroyed
 test("radar state lives on the unit: player EMCON and AI duty cycle both go through commands; no ECM side effects for the AI", () => {
   const s = Sim.newShip(), c = mkEn(60), ctx = { contacts: [], missiles: [] };
   assert.ok(s.radar.on && c.radar.on); Sim.command(s, { type: "emcon", on: true }, ctx); assert.equal(s.radar.on, false);
-  c.ai.t = 30; Sim.aiStep(c, s, true, 0.1); assert.equal(c.radar.on, false, "off window: radar command issued"); assert.equal(c.emitting, false);
-  c.def.ecm = true; Sim.aiStep(c, s, true, 0.1); assert.equal(c.def.ecm, true, "AI jamming is not cut by its radar duty");
+  c.ai.t = 30; Sim.aiStep(c, s, 0.1); assert.equal(c.radar.on, false, "off window: radar command issued"); assert.equal(c.emitting, false);
+  c.def.ecm = true; Sim.aiStep(c, s, 0.1); assert.equal(c.def.ecm, true, "AI jamming is not cut by its radar duty");
   assert.ok(Sim.command(c, { type: "ecm", on: true }, ctx).ok, "AI may jam while its radar is silent");
-  c.ai.t = 0; Sim.aiStep(c, s, true, 0.1); assert.equal(c.radar.on, true); assert.equal(c.emitting, true);
-  c.holds = [true, false, true, true]; c.ai.t = 30; Sim.aiStep(c, s, true, 0.1); assert.equal(c.radar.on, true, "SENSORS not held: the AI cannot switch its radar");
-  c.holds = null; c.dead[1] = true; Sim.aiStep(c, s, true, 0.1); assert.equal(c.radar.on, false); assert.equal(c.emitting, false);
+  c.ai.t = 0; Sim.aiStep(c, s, 0.1); assert.equal(c.radar.on, true); assert.equal(c.emitting, true);
+  c.holds = [true, false, true, true]; c.ai.t = 30; Sim.aiStep(c, s, 0.1); assert.equal(c.radar.on, true, "SENSORS not held: the AI cannot switch its radar");
+  c.holds = null; c.dead[1] = true; Sim.aiStep(c, s, 0.1); assert.equal(c.radar.on, false); assert.equal(c.emitting, false);
 });
 
 test("AI fires at an ESM fix only once per FIX_CD; a solid track is not limited by it", () => {
@@ -528,8 +528,8 @@ test("AI fires at an ESM fix only once per FIX_CD; a solid track is not limited 
 
 test("AI identifies several foes in parallel, per foe; fires only at foes known hostile", () => {
   const s = Sim.newShip(), al = Sim.newAlly(0, 20), c = mkEn(60); c.x = 0; c.y = 0; s.x = 0; s.y = -20; s.rel = "neutral"; c.ai.t = 0;
-  run(dt => Sim.aiStep(c, s, true, dt, al), 5); assert.equal(c.ai.state, "id", "tracking two unknowns: identifying");
-  run(dt => Sim.aiStep(c, s, true, dt, al), 60);
+  run(dt => Sim.aiStep(c, s, dt, al), 5); assert.equal(c.ai.state, "id", "tracking two unknowns: identifying");
+  run(dt => Sim.aiStep(c, s, dt, al), 60);
   assert.equal(c.ai.trk.own.known, "neutral", "our ship identified as neutral"); assert.equal(c.ai.trk.A1.known, "host", "ally identified hostile at the same time");
   assert.equal(c.ai.state, "engage"); assert.equal(c.ai.pid, "A1", "hunts the hostile foe");
   const r = c.ai.trk.own; r.q = 0.9; r.tracked = true; c.ai.trk.A1.q = 0; c.ai.trk.A1.tracked = false; c.ai.cd = 0;
@@ -561,8 +561,8 @@ test("LINK: a shared track does not keep itself alive (no ping-pong) once the or
 test("shared drivers: AI uses the beam radar and ESM; identify via command; movement via set_course/set_speed", () => {
   const s = Sim.newShip(), c = mkEn(30); s.rel = "neutral"; c.ai.t = 0;
   assert.ok(c.radar.ang !== undefined && c.esmS, "AI unit has a beam and an ESM state like the ship");
-  run(dt => Sim.aiStep(c, s, true, dt), 8); const r = c.ai.trk.own; assert.ok(r && r.tracked, "tracked through the shared radar driver"); assert.ok(r.idActive || r.known, "identify started by command");
-  run(dt => Sim.aiStep(c, s, true, dt), 40); assert.equal(c.ai.trk.own.known, "neutral", "identified by the shared routine (ship.rel)");
+  run(dt => Sim.aiStep(c, s, dt), 8); const r = c.ai.trk.own; assert.ok(r && r.tracked, "tracked through the shared radar driver"); assert.ok(r.idActive || r.known, "identify started by command");
+  run(dt => Sim.aiStep(c, s, dt), 40); assert.equal(c.ai.trk.own.known, "neutral", "identified by the shared routine (ship.rel)");
   c.dead[0] = true; const h = c.ordHdg; c.ai.state = "engage"; c.ai.tracks = true; c.ai.lx = 0; c.ai.ly = -50; Sim.stepUnit(c, 1, s); assert.equal(c.ordHdg, h, "NAV destroyed: set_course refused, orders held");
   const e = mkEn(30); e.ai.wp = [[0, 60]]; e.ai.i = 0; e.spd = 0; e.ordSpd = 0; Sim.stepUnit(e, 1, s); assert.equal(e.ordSpd, Sim.CFG.CRUISE, "patrol order issued as set_speed"); assert.ok(e.spd > 0 && e.spd < Sim.CFG.CRUISE, "and the unit accelerates like a ship");
 });

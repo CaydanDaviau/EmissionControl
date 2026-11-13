@@ -240,11 +240,12 @@ const LAT0=41+11.295/60, LON0=21+26.496/60;
 const EDGE=40; // enemy spawn: 40 nm north (just inside ESM range; radar horizon is 32 nm)
 function mkEnemy(id,brgDeg,R,aiSeed,seed){ const c=Sim.newContact(id,brgDeg,R,{side:"enemy",speed:15,emit:{name:"Type 346B",range:70}}), r=brgDeg*Math.PI/180, x=Math.sin(r)*R, y=Math.cos(r)*R;
   c.ai=Sim.newAi(aiSeed,[[x+10,y+2],[x+10,y+14],[x-10,y+14],[x-10,y+2]]); c.hdg=90; Sim.initEnemy(c,seed); return c; }
+const TK=c=>c.marker?c:Sim.trkOf(ship,c); // the player's track record for a contact (fix markers carry their own fields)
 const contacts=[ mkEnemy(1,0,EDGE,20261114,4242), mkEnemy(2,70,38,20261115,4343) ]; // two enemies, both inside each other's ESM range of us
-const fixes=[], ally=Sim.newAlly(15,0), all=()=>contacts.concat(fixes); // fixes = ESM crossing markers (5 s)
-const cid=v=>/^\d+$/.test(String(v))?+v:v, lbl=c=>c.marker?"FIX E"+c.esmNo:String(c.id).padStart(4,"0"); let linkMsg="";
+const ally=Sim.newAlly(15,0), all=()=>contacts.concat(ship.fixes); // ship.fixes = ESM crossing markers (5 s)
+const cid=v=>/^\d+$/.test(String(v))?+v:v, lbl=c=>c.marker?"FIX E"+TK(c).esmNo:String(c.id).padStart(4,"0"); 
 const missiles=[]; // own missiles in flight
-const radar=ship.radar, esm=Sim.newEsm(20261112);
+const radar=ship.radar, esm=ship.esmS;
 let sweepOn=true; try{ sweepOn=localStorage.getItem("emcon.sweep")!=="0"; }catch(e){}
 const S={paused:true,ri:4,rings:true,labels:true,grid:true,sel:null,hup:false,ts:0,ws:null};
 let blink=0,seenHit=0,seenStrike=0,bannerT=0,msel=null,defMsg=""; // msel = selected incoming missile uid
@@ -261,11 +262,11 @@ new ResizeObserver(resize).observe($("scopeWrap"));
 
 function niceStep(range){ const t=range/4, p=Math.pow(10,Math.floor(Math.log10(t))), m=t/p;
   return (m<1.5?1:m<3.5?2:m<7.5?5:10)*p; }
-const rng=c=>Math.hypot(c.px-ship.x,c.py-ship.y);
-const brg=c=>Sim.norm(Math.atan2(c.px-ship.x,c.py-ship.y)*180/Math.PI);
+const rng=c=>Math.hypot(TK(c).px-ship.x,TK(c).py-ship.y);
+const brg=c=>Sim.norm(Math.atan2(TK(c).px-ship.x,TK(c).py-ship.y)*180/Math.PI);
 function scopeGeom(){ return {cx:W/2,cy:H/2,R:Math.min(W,H)/2-26}; }
 function proj(c,G,px,rot){ // contact -> screen
-  const dx=c.px-ship.x, dy=c.py-ship.y, r=Math.hypot(dx,dy), b=Math.atan2(dx,dy)-rot*Math.PI/180;
+  const dx=TK(c).px-ship.x, dy=TK(c).py-ship.y, r=Math.hypot(dx,dy), b=Math.atan2(dx,dy)-rot*Math.PI/180;
   return {x:G.cx+Math.sin(b)*r*px, y:G.cy-Math.cos(b)*r*px};
 }
 
@@ -311,35 +312,35 @@ function draw(){
         g.beginPath(); g.moveTo(cx,cy); g.lineTo(cx+Math.cos(a)*L,cy+Math.sin(a)*L); g.stroke(); }
       g.restore(); } }
   // ESM bearing lines (dashed violet, +/- sigma wedge)
-  for(const c of contacts){ if(!c.esm) continue;
-    const a=A(c.esm.brg), sg=Sim.CFG.ESM.SIGMA*Math.PI/180, f=Math.max(0.35,1-0.65*(esm.t-c.esm.t)/Sim.CFG.ESM.HOLD);
+  for(const c of contacts){ if(!TK(c).esm) continue;
+    const a=A(TK(c).esm.brg), sg=Sim.CFG.ESM.SIGMA*Math.PI/180, f=Math.max(0.35,1-0.65*(esm.t-TK(c).esm.t)/Sim.CFG.ESM.HOLD);
     g.save(); g.globalAlpha=f; g.fillStyle="rgba(179,136,255,.12)"; g.beginPath(); g.moveTo(cx,cy); g.arc(cx,cy,R,a-sg,a+sg); g.closePath(); g.fill();
     g.strokeStyle="#b388ff"; g.lineWidth=1.2; g.setLineDash([7,5]); g.beginPath(); g.moveTo(cx,cy); g.lineTo(cx+Math.cos(a)*R,cy+Math.sin(a)*R); g.stroke(); g.setLineDash([]);
-    if(S.labels){ g.fillStyle="#b388ff"; g.textAlign="left"; g.textBaseline="middle"; g.fillText("E"+c.esmNo+" "+c.emit.name,cx+Math.cos(a)*R*0.62+6,cy+Math.sin(a)*R*0.62); }
+    if(S.labels){ g.fillStyle="#b388ff"; g.textAlign="left"; g.textBaseline="middle"; g.fillText("E"+TK(c).esmNo+" "+c.emit.name,cx+Math.cos(a)*R*0.62+6,cy+Math.sin(a)*R*0.62); }
     g.restore(); }
   // ally ESM lines (white), only while LINK is on and the line crosses ours
-  if(ship.link) for(const c of contacts){ if(!c.esm||!c.esmA) continue;
-    if(!Sim.rays(ship.x,ship.y,c.esm.brg,ally.x,ally.y,c.esmA.brg)) continue;
+  if(ship.link) for(const c of contacts){ if(!TK(c).esm||!c.esmA) continue;
+    if(!Sim.rays(ship.x,ship.y,TK(c).esm.brg,ally.x,ally.y,c.esmA.brg)) continue;
     const dx=ally.x-ship.x, dy=ally.y-ship.y, b=Math.atan2(dx,dy)-rot*Math.PI/180, ax=cx+Math.sin(b)*Math.hypot(dx,dy)*px, ay=cy-Math.cos(b)*Math.hypot(dx,dy)*px, a=A(c.esmA.brg), f=Math.max(0.35,1-0.65*(ally.esmS.t-c.esmA.t)/Sim.CFG.ESM.HOLD);
     g.save(); g.globalAlpha=f; g.strokeStyle="#fff"; g.lineWidth=1.2; g.setLineDash([7,5]); g.beginPath(); g.moveTo(ax,ay); g.lineTo(ax+Math.cos(a)*R*2,ay+Math.sin(a)*R*2); g.stroke(); g.restore(); }
   // contacts (only what the radar has seen)
   g.lineWidth=1.6;
   for(const c of all()){
-    if(!c.seen||rng(c)>range) continue;
+    if(!TK(c).seen||rng(c)>range) continue;
     const p=proj(c,G,px,rot); g.save(); g.translate(p.x,p.y);
     if(c.marker){ g.globalAlpha=Math.min(1,c.t/1.5); g.strokeStyle="#b388ff"; g.lineWidth=1.6; g.beginPath(); g.moveTo(0,-7); g.lineTo(7,0); g.lineTo(0,7); g.lineTo(-7,0); g.closePath(); g.stroke();
       if(S.sel===c.id){ g.strokeStyle="#fff"; g.lineWidth=1; g.strokeRect(-10,-10,20,20); }
       if(S.labels){ g.fillStyle="#b388ff"; g.textAlign="left"; g.textBaseline="middle"; g.fillText(lbl(c),11,0); }
       g.restore(); continue; }
-    let al=1; if(!c.tracked) al=0.3; else al=1-0.65*Math.min(1,(radar.t-c.lastHit)/Sim.CFG.RADAR.PERIOD);
-    g.globalAlpha=al; g.strokeStyle=COL[c.cls];
-    if(!c.tracked) g.setLineDash([3,3]);
-    if(c.cls==="ally"){ g.beginPath(); g.arc(0,0,5.5,0,Math.PI*2); g.stroke(); } else if(!c.sunk) g.strokeRect(-5,-5,10,10);
+    let al=1; if(!TK(c).tracked) al=0.3; else al=1-0.65*Math.min(1,(radar.t-TK(c).lastHit)/Sim.CFG.RADAR.PERIOD);
+    g.globalAlpha=al; g.strokeStyle=COL[TK(c).cls];
+    if(!TK(c).tracked) g.setLineDash([3,3]);
+    if(TK(c).cls==="ally"){ g.beginPath(); g.arc(0,0,5.5,0,Math.PI*2); g.stroke(); } else if(!c.sunk) g.strokeRect(-5,-5,10,10);
     g.setLineDash([]); g.globalAlpha=1;
-    if(c.identified&&!c.sunk){ const a=A(c.hdg); g.globalAlpha=al; g.strokeStyle=COL[c.cls]; g.lineWidth=1.6; g.beginPath(); g.moveTo(Math.cos(a)*5,Math.sin(a)*5); g.lineTo(Math.cos(a)*20,Math.sin(a)*20); g.stroke(); g.globalAlpha=1; } // identified: heading line like ours
+    if(TK(c).identified&&!c.sunk){ const a=A(c.hdg); g.globalAlpha=al; g.strokeStyle=COL[TK(c).cls]; g.lineWidth=1.6; g.beginPath(); g.moveTo(Math.cos(a)*5,Math.sin(a)*5); g.lineTo(Math.cos(a)*20,Math.sin(a)*20); g.stroke(); g.globalAlpha=1; } // identified: heading line like ours
     if(c.sunk){ g.strokeStyle="#ff4a4a"; g.lineWidth=2; g.beginPath(); g.moveTo(-8,-8); g.lineTo(8,8); g.moveTo(8,-8); g.lineTo(-8,8); g.stroke(); g.lineWidth=1.6; } // destroyed enemy: red X
     if(S.sel===c.id){ g.strokeStyle="#fff"; g.lineWidth=1; g.strokeRect(-9,-9,18,18); g.lineWidth=1.6; }
-    if(S.labels&&!c.sunk){ g.globalAlpha=Math.max(al,0.3); g.fillStyle=COL[c.cls]; g.textAlign="left"; g.textBaseline="middle"; g.fillText(String(c.id).padStart(4,"0"),11,0); }
+    if(S.labels&&!c.sunk){ g.globalAlpha=Math.max(al,0.3); g.fillStyle=COL[TK(c).cls]; g.textAlign="left"; g.textBaseline="middle"; g.fillText(String(c.id).padStart(4,"0"),11,0); }
     g.restore();
   }
   { const dx=ally.x-ship.x, dy=ally.y-ship.y, r=Math.hypot(dx,dy); if(r<=range){ const b=Math.atan2(dx,dy)-rot*Math.PI/180, sx=cx+Math.sin(b)*r*px, sy=cy-Math.cos(b)*r*px; // ally A1: blue circle
@@ -414,62 +415,62 @@ function sensUi(){
   $("emNote").textContent=radar.on?"Radar on: you can track radar contacts, but enemy ESM can hear you from far away."
     :"Radar off: enemy ESM cannot hear you, but you are blind to radar contacts and existing tracks fade out.";
   $("linkB").textContent="LINK  "+(ship.link?"ON":"OFF"); $("linkB").classList.toggle("on",!!ship.link);
-  $("linkNote").textContent=linkMsg||"Shares ESM bearings with ally A1: where two bearing lines cross, a FIX marker appears for 5 s and can be fired at. LINK emits: enemy ESM can hear it.";
+  $("linkNote").textContent=ship.linkMsg||"Shares ESM bearings with ally A1: where two bearing lines cross, a FIX marker appears for 5 s and can be fired at. LINK emits: enemy ESM can hear it.";
   $("sensList").innerHTML=SENSORS.map(x=>`<div class="srow"><span class="n">${x.name}</span><span>${x.model}</span><span class="s">${x.state()}</span></div>`).join("");
-  const L=contacts.filter(c=>c.esm).sort((a,b)=>a.esmNo-b.esmNo);
+  const L=contacts.filter(c=>TK(c).esm).sort((a,b)=>TK(a).esmNo-TK(b).esmNo);
   identList();
   $("esmList").innerHTML=L.length?L.map(c=>{
-    const near=c.seen&&c.tracked&&Math.abs(Sim.diff(brg(c),c.esm.brg))<2*Sim.CFG.ESM.SIGMA;
-    return `<div class="esmr">E${c.esmNo}  ${c.emit.name}  BRG ${pad3(c.esm.brg)}\u00b1${Sim.CFG.ESM.SIGMA}${near?"  = TRK "+String(c.id).padStart(4,"0"):""}<div class="d">heard ${Math.round(esm.t-c.esm.t)}s ago</div></div>`;
+    const near=TK(c).seen&&TK(c).tracked&&Math.abs(Sim.diff(brg(c),TK(c).esm.brg))<2*Sim.CFG.ESM.SIGMA;
+    return `<div class="esmr">E${TK(c).esmNo}  ${c.emit.name}  BRG ${pad3(TK(c).esm.brg)}\u00b1${Sim.CFG.ESM.SIGMA}${near?"  = TRK "+String(c.id).padStart(4,"0"):""}<div class="d">heard ${Math.round(esm.t-TK(c).esm.t)}s ago</div></div>`;
   }).join(""):'<div class="note">No emitters heard.</div>';
 }
 const cmdr=o=>Sim.command(ship,o,{radar,contacts:all(),missiles}); // every player action goes through the command layer
-$("linkB").onclick=()=>{ linkMsg=cmdr({type:"link"}).msg; sensUi(); };
+$("linkB").onclick=()=>{ ship.linkMsg=cmdr({type:"link"}).msg; sensUi(); };
 $("emconB").onclick=()=>{ cmdr({type:"emcon",on:radar.on}); sensUi(); }; // EMCON forces jamming and LINK off
 const emcon=()=>!radar.on&&!ship.dead[1]; // radar silent by choice (a destroyed SENSORS station is not EMCON)
 // ---- identify (SENSORS tab) ----
 const IDN={unk:"NEUTRAL",ally:"ALLY",host:"HOSTILE"};
 let idHtml="";
 function identList(){
-  const L=contacts.filter(c=>c.seen&&!c.sunk).sort((a,b)=>a.id-b.id);
-  const h=L.map(c=>{ const st=!c.tracked?"LOST":c.identified?"IDENTIFIED":c.idActive?Math.round(100*c.idProg)+"%":"";
-    return `<div class="idr ${c.cls}${c.tracked?"":" lost"}${S.sel===c.id?" sel":""}" data-id="${c.id}"><span>${String(c.id).padStart(4,"0")}</span><span>${c.tracked?TAGN[c.cls]:"--"}</span><span>${rng(c).toFixed(1)} NM</span><span class="s">${st}</span></div>`; }).join("")
+  const L=contacts.filter(c=>TK(c).seen&&!c.sunk).sort((a,b)=>a.id-b.id);
+  const h=L.map(c=>{ const st=!TK(c).tracked?"LOST":TK(c).identified?"IDENTIFIED":TK(c).idActive?Math.round(100*TK(c).idProg)+"%":"";
+    return `<div class="idr ${TK(c).cls}${TK(c).tracked?"":" lost"}${S.sel===c.id?" sel":""}" data-id="${c.id}"><span>${String(c.id).padStart(4,"0")}</span><span>${TK(c).tracked?TAGN[TK(c).cls]:"--"}</span><span>${rng(c).toFixed(1)} NM</span><span class="s">${st}</span></div>`; }).join("")
     ||'<div class="note" style="padding:6px">No contacts yet.</div>';
   if(h!==idHtml){ idHtml=h; $("idList").innerHTML=h; }
 }
 function identPanel(){
-  const c=contacts.find(k=>k.id===S.sel&&k.seen&&!k.sunk), T=c?Sim.identifyTime(c,ship):0, b=$("idB");
-  $("idInfo").textContent=c?String(c.id).padStart(4,"0")+"  BRG "+pad3(brg(c))+"  RNG "+rng(c).toFixed(1)+"  "+(c.tracked?"Q "+Math.round(c.q*100)+"%":"LOST"):"No contact selected";
-  b.textContent=!c?"IDENTIFY":c.idActive?"CANCEL":c.identified?"IDENTIFIED":"IDENTIFY";
-  b.disabled=!c||(!c.idActive&&(c.identified||!c.tracked||!radar.on)); b.classList.toggle("on",!!c&&c.idActive);
-  $("idBar").style.width=(c?(c.identified?100:100*c.idProg):0)+"%";
-  $("idNote").textContent=!c?"Pick a contact from the list.":c.identified?"Identified: "+IDN[c.cls]+". Tag is locked.":
-    c.idActive?"Identifying... "+Math.round(100*c.idProg)+"% (~"+Math.ceil((1-c.idProg)*T)+" s left). Keep the radar track.":
-    c.idNote==="lost"?"Interrupted: track lost. Progress reset.":c.idNote==="emcon"?"Interrupted: radar went silent (EMCON). Progress reset.":!radar.on?"Radar is silent (EMCON). Identify needs the radar on.":!c.tracked?"Track lost. Identify needs a radar track.":
+  const c=contacts.find(k=>k.id===S.sel&&TK(k).seen&&!k.sunk), T=c?Sim.identifyTime(c,ship):0, b=$("idB");
+  $("idInfo").textContent=c?String(c.id).padStart(4,"0")+"  BRG "+pad3(brg(c))+"  RNG "+rng(c).toFixed(1)+"  "+(TK(c).tracked?"Q "+Math.round(TK(c).q*100)+"%":"LOST"):"No contact selected";
+  b.textContent=!c?"IDENTIFY":TK(c).idActive?"CANCEL":TK(c).identified?"IDENTIFIED":"IDENTIFY";
+  b.disabled=!c||(!TK(c).idActive&&(TK(c).identified||!TK(c).tracked||!radar.on)); b.classList.toggle("on",!!c&&TK(c).idActive);
+  $("idBar").style.width=(c?(TK(c).identified?100:100*TK(c).idProg):0)+"%";
+  $("idNote").textContent=!c?"Pick a contact from the list.":TK(c).identified?"Identified: "+IDN[TK(c).cls]+". Tag is locked.":
+    TK(c).idActive?"Identifying... "+Math.round(100*TK(c).idProg)+"% (~"+Math.ceil((1-TK(c).idProg)*T)+" s left). Keep the radar track.":
+    TK(c).idNote==="lost"?"Interrupted: track lost. Progress reset.":TK(c).idNote==="emcon"?"Interrupted: radar went silent (EMCON). Progress reset.":!radar.on?"Radar is silent (EMCON). Identify needs the radar on.":!TK(c).tracked?"Track lost. Identify needs a radar track.":
     "Needs a continuous radar track for ~"+Math.round(T)+" s (longer at range / low RCS). Losing it resets progress.";
 }
 $("idList").addEventListener("pointerdown",e=>{ const r=e.target.closest(".idr"); if(!r) return;
   const id=+r.dataset.id; S.sel=S.sel===id?null:id; identList(); identPanel(); fillTable(); });
-$("idB").onclick=()=>{ const c=contacts.find(k=>k.id===S.sel&&k.seen&&!k.sunk); if(!c) return;
-  cmdr(c.idActive?{type:"cancel_identify",id:c.id}:{type:"identify",id:c.id}); identPanel(); identList(); };
+$("idB").onclick=()=>{ const c=contacts.find(k=>k.id===S.sel&&TK(k).seen&&!k.sunk); if(!c) return;
+  cmdr(TK(c).idActive?{type:"cancel_identify",id:c.id}:{type:"identify",id:c.id}); identPanel(); identList(); };
 const TAGN={unk:"UNK",ally:"ALLY",host:"HOST"};
 function fillTable(){
-  const range=RANGES[S.ri], list=contacts.filter(c=>c.seen&&!c.sunk&&rng(c)<=range).sort((a,b)=>a.id-b.id);
-  $("tcount").textContent=list.filter(c=>c.tracked).length;
+  const range=RANGES[S.ri], list=contacts.filter(c=>TK(c).seen&&!c.sunk&&rng(c)<=range).sort((a,b)=>a.id-b.id);
+  $("tcount").textContent=list.filter(c=>TK(c).tracked).length;
   selPanel();
   if(!$("tList").classList.contains("open")) return;
   const tb=$("tbody"); tb.innerHTML="";
   for(const c of list){
-    const tr=document.createElement("tr"); tr.className=c.cls+(c.tracked?"":" lost")+(S.sel===c.id?" sel":"");
-    tr.innerHTML=`<td>${String(c.id).padStart(4,"0")}</td><td>${c.tracked?TAGN[c.cls]:"LOST"}</td><td>${pad3(brg(c))}</td><td>${rng(c).toFixed(1)}</td>`;
+    const tr=document.createElement("tr"); tr.className=TK(c).cls+(TK(c).tracked?"":" lost")+(S.sel===c.id?" sel":"");
+    tr.innerHTML=`<td>${String(c.id).padStart(4,"0")}</td><td>${TK(c).tracked?TAGN[TK(c).cls]:"LOST"}</td><td>${pad3(brg(c))}</td><td>${rng(c).toFixed(1)}</td>`;
     tr.onclick=()=>{S.sel=S.sel===c.id?null:c.id; fillTable();};
     tb.appendChild(tr);
   }
 }
 function selPanel(){
-  const c=contacts.find(k=>k.id===S.sel&&k.seen&&!k.sunk);
-  $("selInfo").textContent=c?String(c.id).padStart(4,"0")+"  BRG "+pad3(brg(c))+"  RNG "+rng(c).toFixed(1)+"  "+(c.tracked?"Q "+Math.round(c.q*100)+"%":"LOST")+(c.identified?"  ID":""):"No contact selected";
-  document.querySelectorAll(".tags button").forEach(b=>{ b.disabled=!(c&&c.tracked&&!c.identified); b.classList.toggle("on",!!c&&c.tracked&&c.cls===b.dataset.t); });
+  const c=contacts.find(k=>k.id===S.sel&&TK(k).seen&&!k.sunk);
+  $("selInfo").textContent=c?String(c.id).padStart(4,"0")+"  BRG "+pad3(brg(c))+"  RNG "+rng(c).toFixed(1)+"  "+(TK(c).tracked?"Q "+Math.round(TK(c).q*100)+"%":"LOST")+(TK(c).identified?"  ID":""):"No contact selected";
+  document.querySelectorAll(".tags button").forEach(b=>{ b.disabled=!(c&&TK(c).tracked&&!TK(c).identified); b.classList.toggle("on",!!c&&TK(c).tracked&&TK(c).cls===b.dataset.t); });
 }
 document.querySelectorAll(".tags button").forEach(b=>b.onclick=()=>{
   if(cmdr({type:"tag",id:S.sel,cls:b.dataset.t}).ok) fillTable(); });
@@ -479,13 +480,13 @@ const wh={t:"",w:"",m:""};
 const mmss=sec=>Math.floor(sec/60)+":"+String(Math.floor(sec%60)).padStart(2,"0");
 function wpnList(){
   const slot=S.ws!=null?ship.loadout[S.ws]:null, WR=slot?Sim.CFG.WEAPONS[slot.w].range:0;
-  const L=all().filter(c=>c.seen&&!c.sunk).sort((a,b)=>(a.marker?1:0)-(b.marker?1:0)||(a.marker?a.t-b.t:a.id-b.id));
-  const t=L.map(c=>{ const out=slot&&c.tracked&&rng(c)>WR;
-    return `<div class="idr ${c.cls}${c.tracked?"":" lost"}${S.sel===c.id?" sel":""}" data-id="${c.id}"><span>${lbl(c)}</span><span>${c.marker?"FIX":c.tracked?TAGN[c.cls]:"--"}</span><span>${rng(c).toFixed(1)} NM</span><span class="s">${!c.tracked?"LOST":out?"OUT OF RANGE":""}</span></div>`; }).join("")
+  const L=all().filter(c=>TK(c).seen&&!c.sunk).sort((a,b)=>(a.marker?1:0)-(b.marker?1:0)||(a.marker?a.t-b.t:a.id-b.id));
+  const t=L.map(c=>{ const out=slot&&TK(c).tracked&&rng(c)>WR;
+    return `<div class="idr ${TK(c).cls}${TK(c).tracked?"":" lost"}${S.sel===c.id?" sel":""}" data-id="${c.id}"><span>${lbl(c)}</span><span>${c.marker?"FIX":TK(c).tracked?TAGN[TK(c).cls]:"--"}</span><span>${rng(c).toFixed(1)} NM</span><span class="s">${!TK(c).tracked?"LOST":out?"OUT OF RANGE":""}</span></div>`; }).join("")
     ||'<div class="note" style="padding:6px">No contacts yet.</div>';
   const w=ship.loadout.map((l,i)=>{ const d=Sim.CFG.WEAPONS[l.w];
     return `<div class="wr${S.ws===i?" sel":""}" data-i="${i}"><span>${d.model}</span><span>${d.name}</span><span>${d.range} NM</span><span class="s am">${l.ammo}</span></div>`; }).join("");
-  const m=missiles.filter(k=>k.side==="own").map(k=>{ const c=k.tid==="mk"?{px:k.tx,py:k.ty}:contacts.find(q=>q.id===k.tid), d=Math.hypot(c.px-k.x,c.py-k.y);
+  const m=missiles.filter(k=>k.side==="own").map(k=>{ const c=k.tid==="mk"?{px:k.tx,py:k.ty}:contacts.find(q=>q.id===k.tid), d=Math.hypot(TK(c).px-k.x,TK(c).py-k.y);
     return `<div class="srow"><span class="n">M${k.n}</span><span>&rarr; ${k.tid==="mk"?"FIX":String(k.tid).padStart(4,"0")}</span><span class="s">${d.toFixed(1)} NM &middot; ETA ${mmss(d/k.spd*3600)}</span></div>`; }).join("")
     ||'<div class="note">None in flight.</div>';
   if(t!==wh.t){ wh.t=t; $("wtList").innerHTML=t; }
@@ -493,8 +494,8 @@ function wpnList(){
   if(m!==wh.m){ wh.m=m; $("mList").innerHTML=m; }
 }
 function wpnPanel(){
-  const c=all().find(k=>k.id===S.sel&&k.seen&&!k.sunk), f=ship.fire, b=$("fireB"), why=Sim.fireCheck(ship,S.ws,c);
-  $("wtInfo").textContent=c?lbl(c)+"  BRG "+pad3(brg(c))+"  RNG "+rng(c).toFixed(1)+"  "+(c.marker?"ESM FIX":c.tracked?"Q "+Math.round(c.q*100)+"%":"LOST"):"No contact selected";
+  const c=all().find(k=>k.id===S.sel&&TK(k).seen&&!k.sunk), f=ship.fire, b=$("fireB"), why=Sim.fireCheck(ship,S.ws,c);
+  $("wtInfo").textContent=c?lbl(c)+"  BRG "+pad3(brg(c))+"  RNG "+rng(c).toFixed(1)+"  "+(c.marker?"ESM FIX":TK(c).tracked?"Q "+Math.round(TK(c).q*100)+"%":"LOST"):"No contact selected";
   b.textContent=f?"ABORT  "+Math.ceil(f.t):"FIRE"; b.classList.toggle("cd",!!f); b.disabled=!f&&!!why;
   $("fireNote").textContent=f?"Launching in "+f.t.toFixed(1)+" s. Needs the radar track and range.":why?why:
     "Ready: "+Sim.CFG.WEAPONS[ship.loadout[S.ws].w].name+" at "+lbl(c)+". Launch has a "+Sim.CFG.WEAPON.COUNTDOWN+" s countdown.";
@@ -505,7 +506,7 @@ $("wtList").addEventListener("pointerdown",e=>{ const r=e.target.closest(".idr")
   const id=cid(r.dataset.id); S.sel=S.sel===id?null:id; wpnRefresh(); });
 $("wList").addEventListener("pointerdown",e=>{ const r=e.target.closest(".wr"); if(!r) return;
   const i=+r.dataset.i; S.ws=S.ws===i?null:i; wpnRefresh(); });
-$("fireB").onclick=()=>{ const c=all().find(k=>k.id===S.sel&&k.seen&&!k.sunk);
+$("fireB").onclick=()=>{ const c=all().find(k=>k.id===S.sel&&TK(k).seen&&!k.sunk);
   cmdr(ship.fire?{type:"cancel_fire"}:{type:"fire",slot:S.ws,id:S.sel}); wpnPanel(); };
 
 // ---- defense (DEFENSE tab): incoming list, SAM, CIWS target, decoys ----
@@ -574,7 +575,7 @@ cv.addEventListener("pointerdown",e=>{
   const r=cv.getBoundingClientRect(), mx=e.clientX-r.left, my=e.clientY-r.top;
   const G=scopeGeom(), range=RANGES[S.ri], px=G.R/range, rot=S.hup?ship.hdg:0;
   let best=null,bd=22;
-  for(const c of all()){ if(!c.seen||c.sunk||rng(c)>range) continue; const p=proj(c,G,px,rot), d=Math.hypot(p.x-mx,p.y-my); if(d<bd){bd=d;best=c;} }
+  for(const c of all()){ if(!TK(c).seen||c.sunk||rng(c)>range) continue; const p=proj(c,G,px,rot), d=Math.hypot(p.x-mx,p.y-my); if(d<bd){bd=d;best=c;} }
   S.sel=best?best.id:null; fillTable();
 });
 
@@ -595,20 +596,20 @@ function applyDmg(){ const hd=i=>!ship.holds||ship.holds[i]; // stations you do 
   for(const b of $("stnRow").children){ const i=+b.dataset.i; b.textContent=STN_SHORT[i]+(ship.dead[i]?" X":hd(i)?" \u2713":" \u2014"); b.classList.toggle("on",hd(i)&&!ship.dead[i]); }
   $("sensPage").classList.toggle("dead",ship.dead[1]); $("wpnPage").classList.toggle("dead",ship.dead[2]);
   $("defPage").classList.toggle("dead",ship.dead[3]); $("navPage").classList.toggle("navdead",ship.dead[0]); }
-$("dbgR").onclick=()=>{ Sim.resetShip(ship); radar.on=true; missiles.length=0; fixes.length=0; Sim.resetAlly(ally,15,0); linkMsg=""; for(const c of contacts) if(c.ai) Sim.resetEnemy(c); msel=null; defMsg=""; bannerT=0; applyDmg(); sensUi(); };
+$("dbgR").onclick=()=>{ Sim.resetShip(ship); radar.on=true; missiles.length=0; ship.fixes.length=0; Sim.resetAlly(ally,15,0); ship.linkMsg=""; for(const c of contacts) if(c.ai) Sim.resetEnemy(c); msel=null; defMsg=""; bannerT=0; applyDmg(); sensUi(); };
 
 // ---- loop ----
 let last=performance.now();
 function frame(t){
   const rdt=Math.min(0.1,(t-last)/1000); last=t; let sdt=rdt*TS[S.ts]; // rdt = real time (radar), sdt = scaled (ship motion)
   if(!S.paused){ while(sdt>0){ const h=Math.min(0.5,sdt); Sim.stepUnit(ship,h); Sim.stepUnit(ally,h,ship); for(const c of contacts) Sim.stepUnit(c,h); Sim.stepMissiles(missiles,contacts,h,ship,ally); Sim.stepDefense(ship,missiles,h); for(const c of contacts) Sim.aiSamMove(c,missiles,h); Sim.allySamMove(ally,missiles,h); sdt-=h; }
-    if(ship.dead[1]){ radar.on=false; for(const c of contacts) c.esm=null; }
+    if(ship.dead[1]){ radar.on=false; for(const c of contacts) TK(c).esm=null; }
     if(emcon()){ ship.def.ecm=false; ship.link=false; } if(ship.dead[1]) ship.link=false;
     Sim.linkShare(ship,ally,contacts);
-    for(const c of contacts){ Sim.aiStep(c,ship,radar.on,rdt,ally,contacts); Sim.aiFireStep(c,ship,missiles,rdt,ally,contacts); Sim.aiDefStep(c,missiles,rdt); }
-    Sim.aiStep(ally,ship,radar.on,rdt,ally,contacts); Sim.aiFireStep(ally,ship,missiles,rdt,ally,contacts); // the ally runs the same AI as the enemies (team blue): radar duty cycle, ESM, tracks, fires at hostile contacts
+    for(const c of contacts){ Sim.aiStep(c, ship, rdt,ally,contacts); Sim.aiFireStep(c,ship,missiles,rdt,ally,contacts); Sim.aiDefStep(c,missiles,rdt); }
+    Sim.aiStep(ally, ship, rdt,ally,contacts); Sim.aiFireStep(ally,ship,missiles,rdt,ally,contacts); // the ally runs the same AI as the enemies (team blue): radar duty cycle, ESM, tracks, fires at hostile contacts
     Sim.allyDefStep(ally,missiles,rdt); // sensors destroyed: radar dead, ESM deaf
-    Sim.radarStep(radar,ship,contacts,rdt); if(!ship.dead[1]) Sim.esmStep(esm,ship,contacts,rdt); const lk=ship.link&&!ship.dead[1]&&!ally.dead[1]; for(const c of contacts) c.esmA=lk?(Sim.trkOf(ally,c).esm||null):null; Sim.fixStep(fixes,ship,ally,contacts,esm,ally.esmS,rdt); // the ally's bearings come from its own track records (its own ESM runs inside its AI)
+    Sim.radarStep(radar,ship,contacts,rdt); if(!ship.dead[1]) Sim.esmStep(esm,ship,contacts,rdt); const lk=ship.link&&!ship.dead[1]&&!ally.dead[1]; for(const c of contacts) c.esmA=lk?(Sim.trkOf(ally,c).esm||null):null; Sim.fixStep(ship.fixes,ship,ally,contacts,esm,ally.esmS,rdt); // the ally's bearings come from its own track records (its own ESM runs inside its AI)
     Sim.aiFixStep(contacts,rdt); Sim.identifyStep(contacts,rdt,radar.on,ship); Sim.fireStep(ship,all(),missiles,rdt); Sim.reap(missiles,rdt); Sim.ecmStep(ship,missiles,rdt); Sim.ciwsStep(ship,missiles,rdt); } // sensors run in real time
   blink=Math.floor(t/300)%2; S.lock=!ship.wreck&&missiles.some(m=>m.tid==="own"&&!m.state); // enemy missile aimed at us
   $("top").style.borderBottom=S.lock?"4px solid "+(blink?"#fff":"#ff3b3b"):"";

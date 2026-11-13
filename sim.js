@@ -37,7 +37,7 @@
   const newLoadout = () => [{ w: "ssm", ammo: 8 }, { w: "asm", ammo: 4 }]; // missiles per weapon id; every unit carries one
   const slotOf = (u, w) => u.loadout.find(l => l.w === w);
   function initUnit(u, team, ctl, seed) { u.loadout = newLoadout(); u.team = team; u.ctl = ctl; u.rng = { seed: seed | 0 }; u.dead = [false, false, false, false]; u.sunk = false; u.wreck = false; u.ecm = false; u.fire = null; u.fireMsg = ""; u.def = newDef(); u.radar = ctl === "human" ? (u.radar || newRadar(seed)) : newRadar(seed ^ 0x2545); u.esmS = newEsm(seed ^ 0x5bd1); if (u.ordSpd === undefined) { u.ordSpd = u.spd || 0; u.ordHdg = u.hdg || 0; } return u; } // ctl = "human" | "ai": who issues this unit's commands
-  function newShip() { return initUnit({ rel: "host", x: 0, y: 0, hdg: 0, spd: 0, ordHdg: 0, ordSpd: 0,
+  function newShip() { return initUnit({ fixes: [], linkMsg: "", rel: "host", x: 0, y: 0, hdg: 0, spd: 0, ordHdg: 0, ordSpd: 0,
     fire: null, fireMsg: "", nMsl: 0,
     nEnemy: 0, nAlly: 0, hitSeq: 0, hitMsg: "", uid: 0 }, "blue", "human", 20261113); } // x east nm, y north nm
 
@@ -444,7 +444,7 @@
     }
     for (const c of contacts) { if (c.sunk || c.marker) continue; const r = al.ai.trk[c.id]; if (!r || !r.tracked || r.lk || r.q <= CFG.RADAR.Q_DROP) continue; // ally -> us: its tracks appear in our picture (same record, shown like a radar track)
       const t = trkOf(ship, c), better = r.q > (t.tracked ? t.q : 0); t.seen = true; t.tracked = true; t.lk = true; if (better) { t.q = r.q; t.px = r.px; t.py = r.py; } t.lastHit = ship.radar ? ship.radar.t : t.lastHit; } }
-  function aiStep(c, ship, radarOn, dt, ally, contacts) {
+  function aiStep(c, ship, dt, ally, contacts) {
     const a = c.ai, A = CFG.AI; if (!a) return;
     a.t += dt;
     const foes = foesOf(c, ship, ally, contacts); let P = bindPrimary(a, foes);
@@ -531,7 +531,7 @@
       case "link": { const m = toggleLink(u, emcon); return R(!/unavailable|destroyed/i.test(m), m); }
       case "identify": { const c = byId(ctx.contacts, cmd.id); if (!c || !c.seen) return R(false, "Select a contact."); return R(startIdent(trkOf(u, c))); }
       case "cancel_identify": { const c = byId(ctx.contacts, cmd.id); if (!c) return R(false); cancelIdentify(trkOf(u, c)); return R(true); }
-      case "tag": { const c = byId(ctx.contacts, cmd.id); return R(!!c && setTag(c, cmd.cls)); }
+      case "tag": { const c = byId(ctx.contacts, cmd.id); return R(!!c && setTag(c.marker ? c : trkOf(u, c), cmd.cls)); }
       case "fire": { const c = ctx.contacts.find(k => k.id === cmd.id && k.seen && !k.sunk), why = fireCheck(u, cmd.slot, c); if (why) return R(false, why); return R(startFire(u, cmd.slot, c)); }
       case "cancel_fire": cancelFire(u); return R(true);
       case "ecm": { if (cmd.on !== undefined && !!u.def.ecm === !!cmd.on) return R(true); const m = toggleEcm(u, emcon); return R(!/unavailable/.test(m), m); } // on: true/false = set instead of toggle
