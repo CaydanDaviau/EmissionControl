@@ -518,3 +518,10 @@ test("radar state lives on the unit: player EMCON and AI duty cycle both go thro
   c.holds = [true, false, true, true]; c.ai.t = 30; Sim.aiStep(c, s, true, 0.1); assert.equal(c.radar.on, true, "SENSORS not held: the AI cannot switch its radar");
   c.holds = null; c.dead[1] = true; Sim.aiStep(c, s, true, 0.1); assert.equal(c.radar.on, false); assert.equal(c.emitting, false);
 });
+
+test("AI fires at an ESM fix only once per FIX_CD; a solid track is not limited by it", () => {
+  const ship = Sim.newShip(), a = mkAi(0, 70); Sim.initEnemy(a, 31); a.id = 1; ship.y = 30; a.ai.known = "host"; a.ai.fix = { x: 3, y: 38, t: 5, host: true }; a.ai.state = "patrol"; const ms = [];
+  assert.ok(shoot(a, ship, ms), "first probing shot"); a.ai.cd = 0; a.ai.fix = { x: 3, y: 38, t: 5, host: true };
+  assert.equal(shoot(a, ship, ms), null, "second blind shot blocked by FIX_CD"); assert.equal(ms.length, 1);
+  Sim.aiFireStep(a, ship, ms, Sim.CFG.AI.FIX_CD, null, []); a.ai.cd = 0; assert.ok(shoot(a, ship, ms), "allowed again after FIX_CD");
+});

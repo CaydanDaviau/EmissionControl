@@ -26,7 +26,7 @@
     DEFENSE: { ECM: { NAME: "AN/SLQ-32", RANGE: 20, P: 0.06, EMIT: 40 }, DECOY: { P: 0.2, AMMO: 4, CD: 20, RANGE: 4 }, CIWS: { RANGE: 1, P: 0.1 }, SAM: { RANGE: 25, P: 0.5, AMMO: 16, SPEED: 2000, RELOAD: 20 }, X_TIME: 10, STRAY: 60 },
     LINK: { EMIT: 25 }, FIX: { LIFE: 5, FRESH: 2.5, MIN_SIN: 0.05, MAXR: 120 }, ALLY: { OFFSET: 15 }, // LINK emits (enemy ESM hears it); FIX = marker where two ESM bearing lines cross: lives LIFE s, bearings count as fresh for FRESH s, lines must cross at > MIN_SIN and < MAXR nm; ALLY = formation slot nm abeam (starboard)
     WEAPON: { COUNTDOWN: 5, ARRIVE: 0.5, SEEKER: 5 }, // SEEKER = nm: a missile reaching the last known position hits only if the target is truly within this; // launch countdown (s, real time); arrive radius (nm)
-    AI: { DUTY_PERIOD: 60, DUTY_ON: 20, SWEEP: 4, SHIP_RCS: 10000, SHIP_H: 60, H_ANT: 100, COAST: 0.02, TURN: 3, WP_NM: 1, FIRE_Q: 0.5, FIRE_CD: 30, HOLD: 0.8, BAND: 4, GIVE_UP: 180, REACT_MIN: 2, REACT_MAX: 5, INV_HOLD: 60 }, // HOLD = fraction of its radar range it tries to keep us at (detection edge), BAND = +- nm around that, GIVE_UP = real s without a track before it goes back to patrol; // enemy radar on 20 s of every 60 s; FIRE_Q = min track quality to fire, FIRE_CD = seconds between launches
+    AI: { DUTY_PERIOD: 60, DUTY_ON: 20, SWEEP: 4, SHIP_RCS: 10000, SHIP_H: 60, H_ANT: 100, COAST: 0.02, TURN: 3, WP_NM: 1, FIRE_Q: 0.5, FIRE_CD: 30, FIX_CD: 180, HOLD: 0.8, BAND: 4, GIVE_UP: 180, REACT_MIN: 2, REACT_MAX: 5, INV_HOLD: 60 }, // HOLD = fraction of its radar range it tries to keep us at (detection edge), BAND = +- nm around that, GIVE_UP = real s without a track before it goes back to patrol; // enemy radar on 20 s of every 60 s; FIRE_Q = min track quality to fire, FIRE_CD = seconds between launches
     IDENTIFY: { TIME: 20, D_REF: 10, MIN: 5, MAX: 90 } // TIME = seconds at D_REF nm for a normal (RCS_REF) contact
   };
   const STN = ["NAVIGATION", "SENSORS", "WEAPONS", "DEFENSE"];
@@ -397,11 +397,11 @@
   // ---- enemy AI (first stage): patrol, duty-cycled radar, ESM; same sensor rules as the player, no weapons yet. Real-time dt ----
   const PRIM = { tracks: "tracked", q: "q", known: "known", idp: "idProg", lx: "px", ly: "py" }; // legacy AI names -> fields of the primary foe's record in a.trk (key "_" while no foe is bound yet)
   const prRec = a => a.trk[a.pid === null ? "_" : a.pid] || (a.trk[a.pid === null ? "_" : a.pid] = newTrk());
-  function newAi(seed, wp) { const a = { seed: seed | 0, wp, i: 0, t: 0, sw: 0, es: 0, pid: null, trk: {}, hears: null, nHear: 0, cd: 0, state: "patrol", lost: 0, hb: 0, il: 0 };
+  function newAi(seed, wp) { const a = { seed: seed | 0, wp, i: 0, t: 0, sw: 0, es: 0, pid: null, trk: {}, hears: null, nHear: 0, cd: 0, fixCd: 0, state: "patrol", lost: 0, hb: 0, il: 0 };
     for (const k in PRIM) Object.defineProperty(a, k, { get() { return prRec(a)[PRIM[k]]; }, set(v) { prRec(a)[PRIM[k]] = v; }, enumerable: false });
     return a; } // state: patrol | inv (investigating an ESM bearing hb; il = real s since last heard) | id | engage; known: null | "host" | "neutral" (its identification of us); idp: identify progress 0..1; lx/ly: last detected position of us
   function aiIdTime(d) { const I = CFG.IDENTIFY; return Math.max(I.MIN, Math.min(I.MAX, I.TIME * (0.6 + 0.4 * d / I.D_REF) * Math.pow(CFG.RADAR.RCS_REF / CFG.AI.SHIP_RCS, 0.25))); } // same formula as ours
-  function resetAi(a) { a.state = "patrol"; a.known = null; a.idp = 0; a.lost = 0; a.hb = 0; a.il = 0; a.hears = null; a.fix = null; a.pid = null; a.trk = {}; a.cd = 0; }
+  function resetAi(a) { a.state = "patrol"; a.known = null; a.idp = 0; a.lost = 0; a.hb = 0; a.il = 0; a.hears = null; a.fix = null; a.pid = null; a.trk = {}; a.cd = 0; a.fixCd = 0; }
   // ---- team-agnostic AI: any unit with `ai` senses and fires at every unit of the other team (`team`) ----
   const keyOf = u => u.id === undefined ? "own" : u.id; // the player ship has no id
   const isShip = u => u.ctl === "human"; // the player ship = the unit under human control
@@ -470,7 +470,7 @@
   // or at a FIX it knows is hostile. Weapon = random pick among those that reach (ASM only beyond SSM range). The missile goes through the same stepMissiles code as any other.
   function aiFireStep(c, ship, missiles, dt, ally, contacts) {
     const a = c.ai, A = CFG.AI; if (!a) return null;
-    a.cd = Math.max(0, a.cd - dt);
+    a.cd = Math.max(0, a.cd - dt); a.fixCd = Math.max(0, (a.fixCd || 0) - dt);
     if (c.sunk) { c.fire = null; return null; }
     const foes = foesOf(c, ship, ally, contacts); bindPrimary(a, foes);
     // the AI's view of its foes = its own track records (last known positions), in the same shape the fire command reads
@@ -481,14 +481,14 @@
     if (c.fire) return fireStep(c, view, missiles, dt, ship); // countdown running (aborts itself if the track is lost, out of range, weapons destroyed...)
     if (c.dead && c.dead[2]) return null; // weapons destroyed
     const T = a.state !== "engage" ? [] : view.filter(v => !v.marker && !v.sunk && (r => r.tracked && r.q > A.FIRE_Q)(a.trk[v.id])).sort((x, y) => (x.id === a.pid) - (y.id === a.pid)); // primary last
-    if (a.cd > 0 || (!T.length && (!fx || ship.sunk))) return null;
+    if (a.cd > 0 || (!T.length && (!fx || ship.sunk || a.fixCd > 0))) return null; // blind shots at an ESM fix: one probing shot per FIX_CD
     const tgt = T.length ? (T.length === 1 ? T[0] : T[Math.floor(rand(a) * T.length)]) : view[view.length - 1]; // no solid track = fire at the hostile FIX
     const d = Math.hypot(tgt.px - c.x, tgt.py - c.y);
     const opts = ["ssm", "asm"].filter(k => slotOf(c, k).ammo > 0 && d <= CFG.WEAPONS[k].range); // weapons that can reach the known position
     if (!opts.length) return null;
     const w = opts[Math.floor(rand(a) * opts.length)]; // random mix
     if (!command(c, { type: "fire", slot: c.loadout.indexOf(slotOf(c, w)), id: tgt.id }, ctx).ok) return null;
-    a.cd = A.FIRE_CD; return null; // the missile leaves when the countdown ends (fireStep above)
+    a.cd = A.FIRE_CD; if (tgt.marker) a.fixCd = A.FIX_CD; return null; // the missile leaves when the countdown ends (fireStep above)
   }
   // ---- command layer: every action a controller (the human UI now; a network client or the AI later) takes on a unit goes through command(unit, cmd, ctx) -> {ok, msg}.
   // cmd = {type, ...args}. ctx = {radar, contacts (incl. FIX markers), missiles}. The same validator for everyone: the owning station must be alive and, if the unit has `holds` (crew), held by the issuer.
