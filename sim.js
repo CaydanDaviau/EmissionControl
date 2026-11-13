@@ -566,6 +566,23 @@
       loadout: v.loadout.map(l => ({ w: l.w, ammo: l.ammo })), def: { decoy: v.def.decoy, sam: v.def.sam, cd: r1(v.def.cd), samCd: r1(v.def.samCd), ciws: v.def.ciws, ciwsOn: v.def.ciwsOn }, fire: v.fire ? { slot: v.fire.slot, tid: v.fire.tid, t: r1(v.fire.t) } : null, fireMsg: v.fireMsg || "", hitMsg: v.hitMsg || "", hitSeq: v.hitSeq || 0 },
       tracks, fixes: (v.fixes || []).map(f => ({ id: f.id, emId: f.emId, px: r1(f.px), py: r1(f.py), t: r1(f.t) })), missiles: ms };
   }
-  const api = { dropPlayer, seatsOf, viewFor, linkShare, command, trkOf, reloadStep, newTrk, toggleLink, newAlly, resetAlly, allyStep, stepUnit, launchMissile, rays, fixStep, aiFixStep, initEnemy, resetEnemy, aiDefStep, aiSamMove, allyDefStep, allySamMove, resetAi, aiIdTime, aiFireStep, newAi, aiStep, ciwsStep, ecmStep, toggleEcm, deployDecoy, launchSam, setCiws, stepDefense, reap, defCheck, CFG, norm, diff, newShip, step, newRadar, newContact, pDetect, radarStep, setTag, stepContact, newEsm, pEsm, esmStep, startIdentify, cancelIdentify, identifyStep, identifyTime, fireCheck, startFire, cancelFire, fireStep, stepMissiles, hitShip, debugMissile, resetShip, STN };
+  // ---- command queue (network): clients send {t:"cmd", seq, type, args}; the host enqueues them and drains once per tick, in arrival order ----
+  // Each player's seq must increase; a repeated/older seq is a retransmit: acked again, NOT executed twice. Replies: {t:"ack",seq[,dup]} or {t:"err",seq,msg}.
+  const newInbox = () => ({ q: [], last: {} });
+  const enqueue = (inbox, pid, msg) => { inbox.q.push({ pid, msg }); };
+  function drain(inbox, unitOf, ctx) { // unitOf(pid) -> the unit that player controls (or null); returns [{pid, reply}]
+    const out = [], items = inbox.q; inbox.q = [];
+    for (const { pid, msg } of items) {
+      const seq = msg && msg.seq, bad = m => out.push({ pid, reply: { t: "err", seq: seq === undefined ? null : seq, msg: m } });
+      if (!msg || msg.t !== "cmd" || !Number.isInteger(seq) || seq < 1) { bad("Bad command message."); continue; }
+      if (seq <= (inbox.last[pid] || 0)) { out.push({ pid, reply: { t: "ack", seq, dup: true } }); continue; }
+      inbox.last[pid] = seq; // consumed even if refused, so a retransmit of a refused command is not retried
+      const u = unitOf(pid); if (!u) { bad("No unit."); continue; }
+      if (typeof msg.type !== "string") { bad("Bad command message."); continue; }
+      const r = command(u, Object.assign({}, msg.args && typeof msg.args === "object" ? msg.args : {}, { type: msg.type }), Object.assign({}, ctx, { pid }));
+      out.push({ pid, reply: r.ok ? { t: "ack", seq } : { t: "err", seq, msg: r.msg || "Refused." } }); }
+    return out;
+  }
+  const api = { newInbox, enqueue, drain, dropPlayer, seatsOf, viewFor, linkShare, command, trkOf, reloadStep, newTrk, toggleLink, newAlly, resetAlly, allyStep, stepUnit, launchMissile, rays, fixStep, aiFixStep, initEnemy, resetEnemy, aiDefStep, aiSamMove, allyDefStep, allySamMove, resetAi, aiIdTime, aiFireStep, newAi, aiStep, ciwsStep, ecmStep, toggleEcm, deployDecoy, launchSam, setCiws, stepDefense, reap, defCheck, CFG, norm, diff, newShip, step, newRadar, newContact, pDetect, radarStep, setTag, stepContact, newEsm, pEsm, esmStep, startIdentify, cancelIdentify, identifyStep, identifyTime, fireCheck, startFire, cancelFire, fireStep, stepMissiles, hitShip, debugMissile, resetShip, STN };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.Sim = api;
 })(typeof self !== "undefined" ? self : this);

@@ -612,3 +612,29 @@ test("viewFor: missiles filtered (own team always; foes only if aimed at me or w
   assert.deepEqual(Sim.viewFor([ship, c], ms, ship, "p1").own.holds, [false, false, true, false]);
   const vr = Sim.viewFor([ship, c], ms, c, null); assert.deepEqual(vr.missiles.map(m => m.uid), [2, 3, 4], "red viewer: its own-team missiles; the blue missile at 58 nm stays hidden");
 });
+
+// ---- command queue seq/ack ----
+test("inbox: in-order execution, ack/err replies, retransmit not re-executed, bad messages", () => {
+  const ship = Sim.newShip(), ib = Sim.newInbox(), unitOf = pid => pid === "a" ? ship : null, ctx = { contacts: [], missiles: [] };
+  Sim.enqueue(ib, "a", { t: "cmd", seq: 1, type: "set_speed", args: { kt: 10 } });
+  Sim.enqueue(ib, "a", { t: "cmd", seq: 2, type: "set_speed", args: { kt: 20 } });
+  Sim.enqueue(ib, "a", { t: "cmd", seq: 2, type: "set_speed", args: { kt: 5 } }); // retransmit with other data: ignored
+  Sim.enqueue(ib, "a", { t: "cmd", seq: 3, type: "bogus" });
+  Sim.enqueue(ib, "a", { t: "cmd", type: "set_speed", args: { kt: 1 } }); // no seq
+  Sim.enqueue(ib, "z", { t: "cmd", seq: 1, type: "set_speed", args: { kt: 1 } }); // unknown player
+  Sim.enqueue(ib, "a", { t: "cmd", seq: 4, type: "set_speed", args: { kt: 7, type: "set_course" } }); // args cannot override type
+  const r = Sim.drain(ib, unitOf, ctx).map(x => x.reply);
+  assert.deepEqual(r.map(x => x.t), ["ack", "ack", "ack", "err", "err", "err", "ack"]);
+  assert.equal(r[2].dup, true); assert.equal(r[3].msg, "Unknown command."); assert.equal(r[3].seq, 3);
+  assert.equal(r[4].seq, null); assert.equal(r[5].msg, "No unit."); assert.equal(ship.ordSpd, 7);
+  assert.equal(Sim.drain(ib, unitOf, ctx).length, 0, "queue emptied");
+  Sim.enqueue(ib, "a", { t: "cmd", seq: 3, type: "set_speed", args: { kt: 99 } }); // older than last (4): dup
+  assert.equal(Sim.drain(ib, unitOf, ctx)[0].reply.dup, true); assert.equal(ship.ordSpd, 7);
+});
+test("inbox: seats still enforced through the queue", () => {
+  const ship = Sim.newShip(), ib = Sim.newInbox(), ctx = { contacts: [], missiles: [] };
+  Sim.enqueue(ib, "a", { t: "cmd", seq: 1, type: "take_station", args: { stn: 1 } });
+  Sim.enqueue(ib, "a", { t: "cmd", seq: 2, type: "set_speed", args: { kt: 12 } });
+  const r = Sim.drain(ib, () => ship, ctx).map(x => x.reply);
+  assert.equal(r[0].t, "ack"); assert.equal(r[1].t, "err"); assert.match(r[1].msg, /NAVIGATION/);
+});
