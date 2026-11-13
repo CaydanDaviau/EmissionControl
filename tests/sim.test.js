@@ -472,3 +472,16 @@ test("command layer: identify, tag, fire, defense commands reach the same sim co
   assert.equal(cmd({ type: "deploy_decoy" }).ok, true, "decoy deployed even with nothing near"); assert.equal(ship.def.decoy, Sim.CFG.DEFENSE.DECOY.AMMO - 1);
   ship.dead[2] = true; assert.match(cmd({ type: "fire", slot: 0, id: 7 }).msg, /WEAPONS destroyed/);
 });
+
+test("AI defense goes through command(): a unit that does not hold DEFENSE cannot launch SAMs", () => {
+  const go = holds => { const c = mkEn(20); c.holds = holds; const ms = [own(c, "asm", c.x, c.y - 10, { hdg: 0 })]; run(dt => Sim.aiDefStep(c, ms, dt), 10, 0.5); return c.def.sam; };
+  const full = Sim.CFG.DEFENSE.SAM.AMMO;
+  assert.ok(go(null) < full, "normal AI launches at an incoming ASM"); assert.equal(go([true, true, true, false]), full, "validator refuses without the station");
+});
+
+test("AI decoy and ECM use the shared primitives: SSM within range is seduced or jammed, ECM flag follows", () => {
+  const c = mkEn(20), ms = [own(c, "ssm", c.x, c.y - 3, { hdg: 0, w: "ssm", spd: 0 })];
+  run(dt => Sim.aiDefStep(c, ms, dt), 30, 0.5);
+  assert.ok(ms[0].state, "decoyed, jammed or shot down"); assert.ok(c.def.decoy < Sim.CFG.DEFENSE.DECOY.AMMO || c.def.ecm || ms[0].state === "dead");
+  c.def.ecm = true; Sim.aiDefStep(c, [], 0.5); assert.equal(c.def.ecm, false, "ECM goes off when nothing is in range");
+});
