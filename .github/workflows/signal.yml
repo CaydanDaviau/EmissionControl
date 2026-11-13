@@ -1,0 +1,36 @@
+name: Deploy signaling Worker
+
+on:
+  push:
+    branches: [main]
+    paths: ['signal/**', '.github/workflows/signal.yml']
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      TURN_KEY_ID: ${{ secrets.TURN_KEY_ID }}
+      TURN_API_TOKEN: ${{ secrets.TURN_API_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Tests
+        run: node --test tests/signal.test.mjs
+      - name: Deploy
+        if: env.CLOUDFLARE_API_TOKEN != ''
+        working-directory: signal
+        run: npx --yes wrangler@3 deploy
+      - name: TURN secrets (optional)
+        if: env.CLOUDFLARE_API_TOKEN != '' && env.TURN_KEY_ID != '' && env.TURN_API_TOKEN != ''
+        working-directory: signal
+        run: |
+          printf '%s' "$TURN_KEY_ID" | npx --yes wrangler@3 secret put TURN_KEY_ID
+          printf '%s' "$TURN_API_TOKEN" | npx --yes wrangler@3 secret put TURN_API_TOKEN
+      - name: Skipped (no Cloudflare token)
+        if: env.CLOUDFLARE_API_TOKEN == ''
+        run: echo "::notice::Add CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID repo secrets to deploy."
