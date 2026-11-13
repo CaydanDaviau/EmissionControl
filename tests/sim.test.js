@@ -56,7 +56,7 @@ test("identify is interrupted and resets when the track is lost (radar on)", () 
   assert.ok(!c.idActive && c.idProg === 0 && c.idNote === "lost" && !c.identified);
 });
 test("identify needs a track; identified tag survives track loss; neutral and ally reveal correctly", () => {
-  const ship = Sim.newShip(), radar = Sim.newRadar(5), n = mk(0, 8), a = mk(90, 8, { side: "ally" });
+  const ship = Sim.newShip(), radar = Sim.newRadar(5), n = mk(0, 8), a = Object.assign(mk(90, 8, { side: "ally" }), { id: 2 }); // track tables are keyed by id: distinct ids
   assert.equal(Sim.startIdentify(n), false, "untracked");
   run(dt => Sim.radarStep(radar, ship, [n, a], dt), 60);
   Sim.startIdentify(n); Sim.startIdentify(a);
@@ -350,7 +350,7 @@ test("enemy missile at the ally hits it with the same station rules; sunk ally d
 test("enemy tracks the ally with its radar and fires at it when engaged; not at a destroyed ally", () => {
   const s = Sim.newShip(), al = Sim.newAlly(0, 30), c = mkEn(60); c.x = 0; c.y = 0; s.x = 0; s.y = -90; // we are far out of reach, the ally is 30 nm away
   c.ai.state = "engage"; c.ai.known = "host"; c.ai.t = 0;
-  run(dt => { Sim.aiStep(c, s, true, dt, al); }, 30); assert.ok(c.ai.trk.A1 && c.ai.trk.A1.tracks && c.ai.trk.A1.q > Sim.CFG.AI.FIRE_Q, "solid track on the ally");
+  run(dt => { Sim.aiStep(c, s, true, dt, al); }, 30); assert.ok(c.ai.trk.A1 && c.ai.trk.A1.tracked && c.ai.trk.A1.q > Sim.CFG.AI.FIRE_Q, "solid track on the ally");
   const m = Sim.aiFireStep(c, s, [], 0, al); assert.ok(m && m.tid === "A1" && m.side === "enemy", "fires at the ally");
   al.sunk = true; c.ai.cd = 0; run(dt => Sim.aiStep(c, s, true, dt, al), 5); assert.ok(!c.ai.trk.A1); assert.equal(Sim.aiFireStep(c, s, [], 0, al), null);
 });
@@ -431,8 +431,18 @@ test("launchMissile: one path for human, enemy and ally; ammo and labels", () =>
 test("AI track table: one record per foe, legacy names mirror the primary's record", () => {
   const s = Sim.newShip(), c = mkEn(20); c.ai.t = 0;
   run(dt => Sim.aiStep(c, s, true, dt), 12);
-  assert.equal(c.ai.pid, "own"); assert.ok(c.ai.trk.own.tracks, "record exists for the foe");
-  assert.equal(c.ai.tracks, c.ai.trk.own.tracks); assert.equal(c.ai.q, c.ai.trk.own.q);
+  assert.equal(c.ai.pid, "own"); assert.ok(c.ai.trk.own.tracked, "record exists for the foe");
+  assert.equal(c.ai.tracks, c.ai.trk.own.tracked); assert.equal(c.ai.q, c.ai.trk.own.q);
   c.ai.known = "host"; assert.equal(c.ai.trk.own.known, "host", "writes through the legacy name land in the record");
   assert.equal(Object.keys(c.ai).includes("tracks"), false, "no separate copy on the AI object");
+});
+
+test("player track table: radar, ESM and identify write ship.trk; contact names read the same record", () => {
+  const ship = Sim.newShip(), radar = Sim.newRadar(5), c = mk(0, 8, { side: "enemy", emit: { name: "X", range: 70 } }), esm = Sim.newEsm(2);
+  run(dt => { Sim.radarStep(radar, ship, [c], dt); Sim.esmStep(esm, ship, [c], dt); }, 60);
+  const r = Sim.trkOf(ship, c);
+  assert.ok(ship.trk[1] === r && r.tracked && r.q > 0 && r.seen && r.esm, "written into the ship's table");
+  assert.equal(c.tracked, r.tracked); assert.equal(c.esm, r.esm); assert.equal(Object.keys(c).includes("tracked"), false);
+  Sim.startIdentify(c); run(dt => { Sim.radarStep(radar, ship, [c], dt); Sim.identifyStep([c], dt, true, ship); }, 40);
+  assert.ok(r.identified && r.cls === "host" && c.cls === "host", "identify result lands in the record");
 });
