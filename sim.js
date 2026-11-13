@@ -94,7 +94,7 @@
       if (r.on && rand(r) < pDetect(Math.hypot(dx, dy), c)) {
         const first = !t.tracked;
         t.q += (1 - t.q) * CFG.RADAR.Q_HIT; t.lastHit = r.t;
-        t.px = c.x; t.py = c.y; t.seen = true;
+        t.px = c.x; t.py = c.y; t.seen = true; t.lk = false;
         if (first) { t.tracked = true; if (!t.identified) t.cls = c.side === "ally" ? "ally" : "unk"; }
       } else if (t.tracked) {
         t.q -= CFG.RADAR.Q_MISS;
@@ -424,9 +424,13 @@
   // Shared tracks refresh its record each call (quality = best of both); an identified contact (our tag hostile) is also known hostile to it.
   function linkShare(ship, al, contacts) {
     if (!ship.link || ship.dead[1] || !al || al.sunk || !al.ai || (al.dead && al.dead[1])) return;
-    for (const c of contacts) { if (c.sunk || c.marker) continue; const t = trkOf(ship, c); if (!t.tracked) continue;
-      const r = rec(al.ai, c); r.tracked = true; r.q = Math.max(r.q, t.q); r.px = t.px; r.py = t.py;
-      if (t.identified && r.known === null) r.known = t.cls === "host" ? "host" : "neutral"; } }
+    for (const t of Object.values(ship.trk || {}).concat(Object.values(al.ai.trk))) if (!t.tracked) t.lk = false; // a shared track that was dropped is gone (lk = copied from the partner, never re-shared: no feedback loop)
+    for (const c of contacts) { if (c.sunk || c.marker) continue; const t = trkOf(ship, c); if (!t.tracked || t.lk) continue;
+      const r = rec(al.ai, c); r.lk = true; r.tracked = true; r.q = Math.max(r.q, t.q); r.px = t.px; r.py = t.py;
+      if (t.identified && r.known === null) r.known = t.cls === "host" ? "host" : "neutral";
+    }
+    for (const c of contacts) { if (c.sunk || c.marker) continue; const r = al.ai.trk[c.id]; if (!r || !r.tracked || r.lk || r.q <= CFG.RADAR.Q_DROP) continue; // ally -> us: its tracks appear in our picture (same record, shown like a radar track)
+      const t = trkOf(ship, c), better = r.q > (t.tracked ? t.q : 0); t.seen = true; t.tracked = true; t.lk = true; if (better) { t.q = r.q; t.px = r.px; t.py = r.py; } t.lastHit = ship.radar ? ship.radar.t : t.lastHit; } }
   function aiStep(c, ship, radarOn, dt, ally, contacts) {
     const a = c.ai, A = CFG.AI; if (!a) return;
     a.t += dt; a.sw += dt; a.es += dt;
@@ -440,7 +444,7 @@
         for (const f of foes) { if (!isShip(f) && f.sunk) continue;
           const r = rec(a, f), df = D(f), rd = c.emit.range * Math.pow((f.rcs || A.SHIP_RCS) / CFG.RADAR.RCS_REF, 0.25); // no horizon cap on range itself: cross section only
           const p = df > CFG.RADAR.HORIZON ? 0 : 1 / (1 + Math.exp(-(rd - df) / (0.15 * rd))); // same horizon cap as ours
-          if (rand(a) < p) { r.q += (1 - r.q) * CFG.RADAR.Q_HIT; r.tracked = true; r.px = f.x; r.py = f.y; if (keyOf(f) === a.pid) { a.dist = df; a.brg = norm(Math.atan2(f.x - c.x, f.y - c.y) * 180 / Math.PI); } }
+          if (rand(a) < p) { r.q += (1 - r.q) * CFG.RADAR.Q_HIT; r.tracked = true; r.lk = false; r.px = f.x; r.py = f.y; if (keyOf(f) === a.pid) { a.dist = df; a.brg = norm(Math.atan2(f.x - c.x, f.y - c.y) * 180 / Math.PI); } }
           else if (r.tracked) r.q -= CFG.RADAR.Q_MISS; }
       }
     } else { a.sw = 0; for (const k in a.trk) if (a.trk[k].tracked) a.trk[k].q -= A.COAST * dt; } // silent: tracks coast and decay

@@ -544,3 +544,16 @@ test("LINK shares our tracks with the ally's picture (any distance); off or SENS
   t.identified = true; t.cls = "host"; Sim.linkShare(s, al, [c]); assert.equal(al.ai.trk[c.id].known, "host");
   const al2 = Sim.newAlly(0, 80); s.dead[1] = true; Sim.linkShare(s, al2, [c]); assert.ok(!al2.ai.trk[c.id], "sensors dead: nothing");
 });
+
+test("LINK is two-way: the ally's track shows in our picture too", () => {
+  const s = Sim.newShip(), al = Sim.newAlly(0, 80), c = mkEn(60); al.ai = al.ai || Sim.newAi(9); s.link = true;
+  const r = Sim.newTrk(); r.tracked = true; r.q = 0.7; r.px = 5; r.py = 70; al.ai.trk[c.id] = r;
+  Sim.linkShare(s, al, [c]); assert.ok(c.tracked && c.seen && c.q === 0.7 && c.px === 5 && c.py === 70, "visible to us through the legacy names");
+});
+
+test("LINK: a shared track does not keep itself alive (no ping-pong) once the original source drops it", () => {
+  const s = Sim.newShip(), al = Sim.newAlly(0, 80), c = mkEn(60); al.ai = al.ai || Sim.newAi(9); s.link = true;
+  const r = Sim.newTrk(); r.tracked = true; r.q = 0.7; r.px = 5; r.py = 70; al.ai.trk[c.id] = r;
+  Sim.linkShare(s, al, [c]); r.tracked = false; r.q = 0; Sim.linkShare(s, al, [c]); Sim.linkShare(s, al, [c]);
+  assert.ok(!al.ai.trk[c.id].tracked, "ally record not revived from our copy");
+});
