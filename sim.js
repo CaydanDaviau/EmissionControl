@@ -425,40 +425,42 @@
     a.t += dt; a.sw += dt; a.es += dt;
     const foes = foesOf(c, ship, ally, contacts); let P = bindPrimary(a, foes);
     if (c.sunk || (c.dead && c.dead[1])) { c.emitting = false; if (c.radar) c.radar.on = false; for (const k in a.trk) { if (k === String(a.pid)) { a.trk[k].tracked = false; a.trk[k].q = 0; } else delete a.trk[k]; } a.hears = null; if (a.state !== "patrol") { a.lost += dt; if (a.lost > A.GIVE_UP) { a.state = "patrol"; a.idp = 0; } } return; } // sensors destroyed: no radar, no ESM
-    c.radar = c.radar || { on: true }; { const want = (a.state === "id" && a.tracks) || (a.t % A.DUTY_PERIOD) < A.DUTY_ON; if (c.dead) command(c, { type: "radar", on: want }, { contacts: [], missiles: [] }); else c.radar.on = want; } c.emitting = c.radar.on; // the AI switches its radar with the same command as a player (SENSORS station). 20/60 duty cycle always (also in combat); exception: while identifying an unknown it holds a track, radar stays ON until identified or the contact is lost
+    const unkT = () => Object.keys(a.trk).filter(k => k !== "_" && a.trk[k].tracked && a.trk[k].known === null); // tracked foes not yet identified
+    c.radar = c.radar || { on: true }; { const want = (a.state === "id" && unkT().length > 0) || (a.t % A.DUTY_PERIOD) < A.DUTY_ON; if (c.dead) command(c, { type: "radar", on: want }, { contacts: [], missiles: [] }); else c.radar.on = want; } c.emitting = c.radar.on; // the AI switches its radar with the same command as a player (SENSORS station). 20/60 duty cycle always (also in combat); exception: while identifying an unknown it holds a track, radar stays ON until identified or the contact is lost
     const D = f => Math.hypot(f.x - c.x, f.y - c.y); let d = P ? D(P) : Infinity;
     if (c.emitting) { // radar: one roll per sweep period per foe, same model as ours
       while (a.sw >= A.SWEEP) { a.sw -= A.SWEEP;
         for (const f of foes) { if (!isShip(f) && f.sunk) continue;
           const r = rec(a, f), df = D(f), rd = c.emit.range * Math.pow((f.rcs || A.SHIP_RCS) / CFG.RADAR.RCS_REF, 0.25); // no horizon cap on range itself: cross section only
           const p = df > CFG.RADAR.HORIZON ? 0 : 1 / (1 + Math.exp(-(rd - df) / (0.15 * rd))); // same horizon cap as ours
-          if (rand(a) < p) { r.q += (1 - r.q) * CFG.RADAR.Q_HIT; r.tracked = true; if (keyOf(f) === a.pid) { a.lx = f.x; a.ly = f.y; a.dist = df; a.brg = norm(Math.atan2(f.x - c.x, f.y - c.y) * 180 / Math.PI); } }
+          if (rand(a) < p) { r.q += (1 - r.q) * CFG.RADAR.Q_HIT; r.tracked = true; r.px = f.x; r.py = f.y; if (keyOf(f) === a.pid) { a.dist = df; a.brg = norm(Math.atan2(f.x - c.x, f.y - c.y) * 180 / Math.PI); } }
           else if (r.tracked) r.q -= CFG.RADAR.Q_MISS; }
       }
     } else { a.sw = 0; for (const k in a.trk) if (a.trk[k].tracked) a.trk[k].q -= A.COAST * dt; } // silent: tracks coast and decay
     for (const k in a.trk) { if (k === "_") continue; const f = foes.find(u => String(keyOf(u)) === k), r = a.trk[k];
       if (!f || (!isShip(f) && f.sunk)) { if (k !== String(a.pid)) delete a.trk[k]; } else if (r.tracked && r.q < CFG.RADAR.Q_DROP) { r.tracked = false; r.q = 0; } }
-    if (!a.tracks && a.state !== "engage") { // the primary foe is not tracked but another is: switch to it (identification and the hunt follow the foe it actually has a track on)
-      let bk = null; for (const k in a.trk) if (k !== String(a.pid) && k !== "_" && a.trk[k].tracked && (bk === null || a.trk[k].q > a.trk[bk].q)) bk = k;
-      const nf = bk === null ? null : foes.find(u => String(keyOf(u)) === bk);
-      if (nf) { if (P) { a.tracks = false; a.q = 0; a.idp = 0; } // old primary keeps its record (and what it knows about it)
-        a.pid = keyOf(nf); P = nf; d = D(nf); a.idp = 0; a.lost = 0; a.lx = nf.x; a.ly = nf.y; a.dist = d; a.brg = norm(Math.atan2(nf.x - c.x, nf.y - c.y) * 180 / Math.PI); a.state = "patrol"; }
-    }
-    // behaviour: a radar track starts identification (hostile known = engage at once; neutral known = ignore). Same rules as ours: needs a continuous track, losing it resets progress.
-    if (a.state === "patrol") {
-      if (a.tracks && a.known !== "neutral") { a.state = a.known === "host" ? "engage" : "id"; a.idp = 0; a.lost = 0; }
+    // per-foe identification, in parallel: every tracked foe with unknown identity gains progress while our radar emits (distance-based time, same as ours);
+    // losing that foe's track resets only its own progress. Result is stored per foe (r.known), so switching foes never forgets or restarts.
+    for (const k in a.trk) { if (k === "_") continue; const r = a.trk[k]; if (r.known !== null) continue;
+      const f = foes.find(u => String(keyOf(u)) === k); if (!f) continue;
+      if (!r.tracked) { r.idProg = 0; continue; }
+      if (c.emitting) { r.idProg += dt / aiIdTime(D(f)); if (r.idProg >= 1) { r.idProg = 0; r.known = relOf(f); } } }
+    const hostT = () => Object.keys(a.trk).filter(k => k !== "_" && a.trk[k].tracked && a.trk[k].known === "host").sort((x, y) => a.trk[y].q - a.trk[x].q);
+    const rebind = k => { if (String(a.pid) === k) return; const f = foes.find(u => String(keyOf(u)) === k), r = a.trk[k]; a.pid = keyOf(f); P = f; d = D(f); a.dist = d; a.lost = 0; a.brg = norm(Math.atan2(f.x - c.x, f.y - c.y) * 180 / Math.PI); };
+    // behaviour: a tracked foe known hostile = engage (hunt it); else any tracked unknown = identify; else a heard emitter = investigate
+    if (a.state !== "engage") {
+      const H = hostT();
+      if (H.length) { rebind(H[0]); a.state = "engage"; a.lost = 0; }
+      else if (a.state === "id") { if (!unkT().length) a.state = "patrol"; }
+      else if (unkT().length) { const U = unkT(); if (!a.tracks || a.known !== null) rebind(U[0]); a.state = "id"; a.lost = 0; }
+      else if (a.state === "inv") { if (a.hears) a.il = 0; else if ((a.il += dt) > A.INV_HOLD) a.state = "patrol"; }
       else if (a.hears && a.known !== "neutral") { a.state = "inv"; a.hb = a.hears.brg; a.il = 0; } // ESM contact without a radar track: go and look
-    } else if (a.state === "inv") { // heads along the last ESM bearing; a radar track starts identification, EMCON (no more ESM) makes it give up after INV_HOLD
-      if (a.tracks) { a.state = a.known === "host" ? "engage" : "id"; a.idp = 0; a.lost = 0; }
-      else if (a.hears) a.il = 0; else if ((a.il += dt) > A.INV_HOLD) a.state = "patrol";
     } else {
+      if (!a.tracks) { const H = hostT(); if (H.length) rebind(H[0]); }
       if (a.tracks) a.lost = 0; else a.lost += dt;
-      if (a.state === "id") {
-        if (!a.tracks) a.idp = 0;
-        else if (c.emitting) { a.idp += dt / aiIdTime(d); if (a.idp >= 1) { a.idp = 0; a.known = relOf(P); a.state = a.known === "host" ? "engage" : "patrol"; } }
-      }
-      if (a.lost > A.GIVE_UP) { a.state = "patrol"; a.idp = 0; } // lost it for too long: back to patrol
+      if (a.lost > A.GIVE_UP) a.state = "patrol"; // lost it for too long: back to patrol
     }
+    if (a.state === "id" && a.lost > A.GIVE_UP) a.state = "patrol";
     while (a.es >= CFG.ESM.INTERVAL) { a.es -= CFG.ESM.INTERVAL; // ESM: hears opposing emitters, bearing only (first foe heard wins the single bearing slot)
       for (const f of foes) { const er = emitOf(f, radarOn); if (er <= 0) continue;
         if (rand(a) < pEsm(D(f), { emit: { range: er }, emitting: true, h: A.SHIP_H })) {
@@ -480,7 +482,7 @@
     const ctx = { radar: AI_RADAR, contacts: view, missiles };
     if (c.fire) return fireStep(c, view, missiles, dt, ship); // countdown running (aborts itself if the track is lost, out of range, weapons destroyed...)
     if (c.dead && c.dead[2]) return null; // weapons destroyed
-    const T = a.state !== "engage" ? [] : view.filter(v => !v.marker && !v.sunk && (r => r.tracked && r.q > A.FIRE_Q)(a.trk[v.id])).sort((x, y) => (x.id === a.pid) - (y.id === a.pid)); // primary last
+    const T = a.state !== "engage" ? [] : view.filter(v => !v.marker && !v.sunk && (r => r.tracked && r.q > A.FIRE_Q && r.known === "host")(a.trk[v.id])).sort((x, y) => (x.id === a.pid) - (y.id === a.pid)); // primary last
     if (a.cd > 0 || (!T.length && (!fx || ship.sunk || a.fixCd > 0))) return null; // blind shots at an ESM fix: one probing shot per FIX_CD
     const tgt = T.length ? (T.length === 1 ? T[0] : T[Math.floor(rand(a) * T.length)]) : view[view.length - 1]; // no solid track = fire at the hostile FIX
     const d = Math.hypot(tgt.px - c.x, tgt.py - c.y);
