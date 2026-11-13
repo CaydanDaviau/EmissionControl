@@ -36,7 +36,7 @@
   function newDef() { return { decoy: CFG.DEFENSE.DECOY.AMMO, sam: CFG.DEFENSE.SAM.AMMO, cd: 0, samCd: 0, ciws: null, ciwsOn: null, ecm: false, sams: [] }; } // defense state shared by every unit; ciws = manual target uid (null = auto), ciwsOn = uid engaged now; sams = pending intercepts
   const newLoadout = () => [{ w: "ssm", ammo: 8 }, { w: "asm", ammo: 4 }]; // missiles per weapon id; every unit carries one
   const slotOf = (u, w) => u.loadout.find(l => l.w === w);
-  function initUnit(u, team, ctl, seed) { u.loadout = newLoadout(); u.team = team; u.ctl = ctl; u.rng = { seed: seed | 0 }; u.dead = [false, false, false, false]; u.sunk = false; u.wreck = false; u.ecm = false; u.fire = null; u.fireMsg = ""; u.def = newDef(); u.radar = ctl === "human" ? (u.radar || newRadar(seed)) : { on: true }; return u; } // ctl = "human" | "ai": who issues this unit's commands
+  function initUnit(u, team, ctl, seed) { u.loadout = newLoadout(); u.team = team; u.ctl = ctl; u.rng = { seed: seed | 0 }; u.dead = [false, false, false, false]; u.sunk = false; u.wreck = false; u.ecm = false; u.fire = null; u.fireMsg = ""; u.def = newDef(); u.radar = ctl === "human" ? (u.radar || newRadar(seed)) : newRadar(seed ^ 0x2545); u.esmS = newEsm(seed ^ 0x5bd1); if (u.ordSpd === undefined) { u.ordSpd = u.spd || 0; u.ordHdg = u.hdg || 0; } return u; } // ctl = "human" | "ai": who issues this unit's commands
   function newShip() { return initUnit({ rel: "host", x: 0, y: 0, hdg: 0, spd: 0, ordHdg: 0, ordSpd: 0,
     fire: null, fireMsg: "", nMsl: 0,
     nEnemy: 0, nAlly: 0, hitSeq: 0, hitMsg: "", uid: 0 }, "blue", "human", 20261113); } // x east nm, y north nm
@@ -57,7 +57,8 @@
   function newTrk() { return { seen: false, tracked: false, q: 0, px: 0, py: 0, lastHit: -1e9, cls: "unk", identified: false, idActive: false, idProg: 0, idNote: "", esm: null, esmNo: 0, known: null }; } // px/py = last detected position; cls = tag; known = identification result (AI use)
   const LINKED = ["seen", "tracked", "q", "px", "py", "lastHit", "cls", "identified", "idActive", "idProg", "idNote", "esm", "esmNo"]; // names the UI and tests still read on a contact: they point into the human ship's record
   function linkTrk(c, r) { for (const f of LINKED) { const d = Object.getOwnPropertyDescriptor(c, f); if (d && "value" in d) r[f] = d.value; Object.defineProperty(c, f, { get() { return r[f]; }, set(v) { r[f] = v; }, enumerable: false, configurable: true }); } }
-  function trkOf(u, c) { const k = c.id === undefined ? "own" : c.id; if (!u.trk) u.trk = {}; let r = u.trk[k]; if (!r) { r = u.trk[k] = newTrk(); if (u.ctl === "human") linkTrk(c, r); } return r; } // the unit's record for contact c (made on first use)
+  function trkOf(u, c) { const k = c.id === undefined ? "own" : c.id, T = u.ai ? u.ai.trk : (u.trk || (u.trk = {})); let r = T[k]; if (!r) { r = T[k] = newTrk(); if (u.ctl === "human") linkTrk(c, r); } return r; } // the unit's record for contact c (made on first use)
+  const peekTrk = (u, c) => { const T = u.ai ? u.ai.trk : u.trk; return T && T[c.id === undefined ? "own" : c.id]; }; // the unit's record for c if one exists (does not create)
   function newRadar(seed) { return { ang: 0, t: 0, seed: seed | 0, on: true }; } // on=false: EMCON, beam turns but nothing is detected
   function rand(r) { // mulberry32, state in r.seed
     r.seed = (r.seed + 0x6D2B79F5) | 0;
@@ -77,31 +78,35 @@
       cls: "unk", identified: false, idActive: false, idProg: 0, idNote: "", // idNote: "" | "lost" | "emcon" (interrupted)
       seen: false, tracked: false, q: 0, px: 0, py: 0, lastHit: -1e9 };
   }
-  function pDetect(d, c) {
-    const R = CFG.RADAR; if (d > R.HORIZON) return 0; // flat horizon cap (nm), then RCS and range
-    const rd = R.RANGE * Math.pow(c.rcs / R.RCS_REF, 0.25);
+  const rcsOf = f => f.rcs || CFG.AI.SHIP_RCS; // radar cross section of any unit (the player ship and the ally use the default)
+  function pDetectU(u, f, d) { // chance that unit u's radar detects f at distance d on one pass of the beam: flat horizon cap, then RCS and range
+    const R = CFG.RADAR; if (d > R.HORIZON) return 0;
+    const rd = (u && u.emit ? u.emit.range : R.RANGE) * Math.pow(rcsOf(f) / R.RCS_REF, 0.25);
     return 1 / (1 + Math.exp(-(rd - d) / (0.15 * rd)));
   }
-  function radarStep(r, ship, contacts, dt) {
+  function pDetect(d, c) { return pDetectU(null, c, d); }
+  // THE radar driver (human ship and AI units alike): the beam r (ang, t, seed, on) turns; a foe it passes is rolled once. on=false: beam turns, nothing detected, tracks take the miss penalty.
+  function radarSweep(u, r, foes, dt) {
     const inc = 360 / CFG.RADAR.PERIOD * dt, a0 = r.ang;
     r.ang = norm(a0 + inc); r.t += dt;
-    for (const c of contacts) {
-      const t = trkOf(ship, c);
-      if (c.sunk) { t.tracked = false; t.q = 0; t.idActive = false; continue; } // destroyed: no longer tracked
-      const dx = c.x - ship.x, dy = c.y - ship.y;
+    for (const c of foes) {
+      if (c.sunk && !isShip(c)) { const t0 = peekTrk(u, c); if (t0) { t0.tracked = false; t0.q = 0; t0.idActive = false; } continue; } // destroyed: no longer tracked
+      const t = trkOf(u, c);
+      const dx = c.x - u.x, dy = c.y - u.y;
       const b = norm(Math.atan2(dx, dy) * 180 / Math.PI), sd = norm(b - a0);
-      if (sd <= 0 || sd > inc) continue;               // beam did not pass this contact
-      if (r.on && rand(r) < pDetect(Math.hypot(dx, dy), c)) {
+      if (sd <= 0 || sd > inc) continue;               // beam did not pass this foe
+      if (r.on && rand(r) < pDetectU(u, c, Math.hypot(dx, dy))) {
         const first = !t.tracked;
         t.q += (1 - t.q) * CFG.RADAR.Q_HIT; t.lastHit = r.t;
         t.px = c.x; t.py = c.y; t.seen = true; t.lk = false;
-        if (first) { t.tracked = true; if (!t.identified) t.cls = c.side === "ally" ? "ally" : "unk"; }
+        if (first) { t.tracked = true; if (u.ctl === "human" && !t.identified) t.cls = c.side === "ally" ? "ally" : "unk"; }
       } else if (t.tracked) {
         t.q -= CFG.RADAR.Q_MISS;
         if (t.q < CFG.RADAR.Q_DROP) { t.tracked = false; t.q = 0; if (!t.identified) t.cls = "unk"; }
       }
     }
   }
+  function radarStep(r, ship, contacts, dt) { radarSweep(ship, r, contacts, dt); } // legacy signature
   function steer(c, want, dt) { const dh = diff(want, c.hdg), mt = CFG.AI.TURN * dt; c.hdg = norm(Math.abs(dh) <= mt ? want : c.hdg + Math.sign(dh) * mt); }
   function huntMove(c, a) { // hunting (id / engage): close in at flank, then hold at the edge of its detection (HOLD x radar range); too close = open range, inside the band = circle
     const dx = a.lx - c.x, dy = a.ly - c.y, d = Math.hypot(dx, dy), hold = CFG.AI.HOLD * c.emit.range, to = norm(Math.atan2(dx, dy) * 180 / Math.PI);
@@ -118,19 +123,24 @@
     if (st === "id" || st === "engage") return huntMove(u, a); // hunting: escort units leave the slot, back in it when they give up (patrol)
     if (u.escort && ship) { // formation slot CFG.ALLY.OFFSET nm abeam (starboard) of the player ship
       const r = (ship.hdg + 90) * Math.PI / 180, dx = ship.x + Math.sin(r) * CFG.ALLY.OFFSET - u.x, dy = ship.y + Math.cos(r) * CFG.ALLY.OFFSET - u.y, d = Math.hypot(dx, dy);
-      if (d < 0.2) return { want: ship.hdg, spd: ship.spd, snap: true };
+      if (d < 0.2) return { want: ship.hdg, spd: ship.spd };
       return { want: norm(Math.atan2(dx, dy) * 180 / Math.PI), spd: Math.min(CFG.FLANK, Math.max(0, ship.spd) + 20 * d) }; }
     if (a && a.wp) { // patrol: steer to the next waypoint (loop)
       const w = a.wp[a.i], dx = w[0] - u.x, dy = w[1] - u.y;
       if (Math.hypot(dx, dy) < CFG.AI.WP_NM) a.i = (a.i + 1) % a.wp.length;
       return { want: norm(Math.atan2(dx, dy) * 180 / Math.PI), spd: CFG.CRUISE }; }
     return null; }
-  function stepUnit(u, dt, ship) { // SCALED dt: one movement step for any unit. human = ordered course/speed (accel + speed-dependent turn); ai = orders from aiOrders
-    if (u.ctl === "human") return step(u, dt);
+  function stepUnit(u, dt, ship) { // SCALED dt: one movement step for any unit. Everyone moves with the same physics (`step`: ordered course/speed, accel, speed-dependent turn); an AI controller
+    // only issues orders, through the same set_course / set_speed commands a player uses (refused when NAVIGATION is destroyed: the unit then holds its last orders).
     if (u.wreck) return;
-    if (u.sunk) { drift(u, dt); if (!u.wreck) advance(u, dt); return; }
-    if (!(u.dead && u.dead[0])) { const o = aiOrders(u, ship); if (o) { if (o.snap) u.hdg = o.want; else steer(u, o.want, dt); u.spd = o.spd; } } // NAVIGATION destroyed: holds last course and speed
-    advance(u, dt);
+    if (u.ordSpd === undefined) { u.ordSpd = u.spd || 0; u.ordHdg = u.hdg || 0; }
+    if (u.ctl !== "human") {
+      if (u.sunk) { u.ordSpd = 0; u.ordHdg = u.hdg; }
+      else { const o = aiOrders(u, ship), nav = !(u.dead && u.dead[0]);
+        const hdg = o ? o.want : u.hdg, spd = o ? o.spd : u.spd; // no orders = hold the current course and speed
+        if (nav) { if (u.dead) { const ctx = { contacts: [], missiles: [] }; command(u, { type: "set_course", hdg }, ctx); command(u, { type: "set_speed", kt: spd }, ctx); } else { u.ordHdg = norm(hdg); u.ordSpd = spd; } } }
+    }
+    step(u, dt);
   }
   function stepContact(c, dt) { stepUnit(c, dt); }
   // ---- ESM ----
@@ -143,15 +153,16 @@
     const rd = E.RANGE_FACTOR * c.emit.range;
     return 1 / (1 + Math.exp(-(rd - d) / (0.15 * rd)));
   }
-  function esmStep(e, ship, contacts, dt, key) { // key = where the bearing is stored on the contact: "esm" (own ship) or "esmA" (ally, via LINK)
+  // THE ESM driver (human ship and AI units): every INTERVAL s each foe's emission is rolled; a hit stores a noisy bearing (smoothed) in the unit's record for that foe (rec.esm), held HOLD s.
+  // key "esm" = the unit's own track record; any other key (legacy: ally LINK bearings "esmA") = a field on the foe itself.
+  function esmSweep(u, e, foes, dt, key) {
     key = key || "esm"; const E = CFG.ESM; e.t += dt; e.acc += dt;
     while (e.acc >= E.INTERVAL) {
       e.acc -= E.INTERVAL;
-      for (const c of contacts) {
-        if (!c.emit) continue;
-        const dx = c.x - ship.x, dy = c.y - ship.y;
-        const t = key === "esm" ? trkOf(ship, c) : c; // own bearings live in the ship's track record; the ally's (LINK) stay on the contact for now
-        if (c.emitting && rand(e) < pEsm(Math.hypot(dx, dy), c)) {
+      for (const c of foes) {
+        if (c.sunk && !isShip(c)) continue;
+        const er = emitOf(c), dx = c.x - u.x, dy = c.y - u.y, t = key === "esm" ? trkOf(u, c) : c;
+        if (er > 0 && rand(e) < pEsm(Math.hypot(dx, dy), { emit: { range: er }, emitting: true })) {
           const b = norm(Math.atan2(dx, dy) * 180 / Math.PI + gauss(e) * E.SIGMA);
           if (!t.esmNo && key === "esm") t.esmNo = ++e.n;
           t[key] = { brg: t[key] ? norm(t[key].brg + 0.4 * diff(b, t[key].brg)) : b, t: e.t }; // light smoothing
@@ -160,32 +171,34 @@
       }
     }
   }
+  function esmStep(e, ship, contacts, dt, key) { esmSweep(ship, e, contacts, dt, key); } // legacy signature
   function setTag(c, cls) { if (!c.tracked || c.identified) return false; c.cls = cls; return true; } // identified = tag locked
-  // ---- identify ----
-  function startIdentify(c) {
-    if (!c.tracked || c.identified || c.idActive) return false;
-    c.idActive = true; c.idProg = 0; c.idNote = ""; return true;
+  // ---- identify (same routine for the human ship and AI units; works on the unit's track record for the foe) ----
+  function startIdent(t) { if (!t.tracked || t.identified || t.known || t.idActive) return false; t.idActive = true; t.idProg = 0; t.idNote = ""; return true; }
+  function startIdentify(c) { return startIdent(c); } // c = a track record or a contact whose legacy names point into one
+  function identTime(u, f) { // seconds needed now: grows with range, and with low RCS (RCS_REF/rcs)^0.25
+    const I = CFG.IDENTIFY, d = Math.hypot(f.x - u.x, f.y - u.y);
+    return Math.max(I.MIN, Math.min(I.MAX, I.TIME * (0.6 + 0.4 * d / I.D_REF) * Math.pow(CFG.RADAR.RCS_REF / rcsOf(f), 0.25)));
   }
-  function identifyTime(c, ship) { // seconds needed now: grows with range, and with low RCS (RCS_REF/rcs)^0.25
-    const I = CFG.IDENTIFY, d = Math.hypot(c.x - ship.x, c.y - ship.y);
-    const t = I.TIME * (0.6 + 0.4 * d / I.D_REF) * Math.pow(CFG.RADAR.RCS_REF / c.rcs, 0.25);
-    return Math.max(I.MIN, Math.min(I.MAX, t));
-  }
+  function identifyTime(c, ship) { return identTime(ship, c); }
   function cancelIdentify(c) { c.idActive = false; c.idProg = 0; c.idNote = ""; }
-  function identifyStep(contacts, dt, radarOn, ship) { // real-time dt, once per frame. Radar silent (EMCON) interrupts at once
-    for (const c of contacts) {
-      const t = trkOf(ship, c);
-      if (!t.idActive) continue;
+  const truthOf = (u, f) => u.ctl === "human" ? (f.side === "ally" ? "ally" : f.side === "enemy" ? "host" : "unk") : relOf(f); // what identification reveals to this unit
+  function identifySweep(u, foes, dt, radarOn) { // REAL dt. Radar silent (EMCON) interrupts at once; track lost interrupts and resets progress
+    if (radarOn === undefined) radarOn = u.radar ? u.radar.on : true;
+    for (const c of foes) {
+      const t = peekTrk(u, c);
+      if (!t || !t.idActive) continue;
+      if (c.sunk && !isShip(c)) { t.idActive = false; t.idProg = 0; continue; }
       if (!radarOn) { t.idActive = false; t.idProg = 0; t.idNote = "emcon"; continue; }
-      if (!t.tracked) { t.idActive = false; t.idProg = 0; t.idNote = "lost"; continue; } // track lost: interrupted, progress resets
-      t.idProg += dt / identifyTime(c, ship); // idProg is a fraction 0..1
+      if (!t.tracked) { t.idActive = false; t.idProg = 0; t.idNote = "lost"; continue; }
+      t.idProg += dt / identTime(u, c); // idProg is a fraction 0..1
       if (t.idProg >= 1) {
-        t.idActive = false; t.idProg = 0; t.identified = true; t.idNote = "";
-        t.cls = c.side === "ally" ? "ally" : c.side === "enemy" ? "host" : "unk"; // reveals hidden truth, tag locked
+        const tr = truthOf(u, c); t.idActive = false; t.idProg = 0; t.identified = true; t.idNote = "";
+        t.known = tr === "host" ? "host" : tr === "ally" ? "ally" : "neutral"; t.cls = tr; // reveals the hidden truth, tag locked
       }
     }
   }
-
+  function identifyStep(contacts, dt, radarOn, ship) { identifySweep(ship, contacts, dt, radarOn); } // legacy signature
   // ---- weapons: select target + weapon, countdown, launch. A launched missile flies toward the target's last known position. ----
   function fireCheck(ship, slot, c) { // "" if OK, else the reason it can't fire
     if (ship.dead[2]) return "Weapons station destroyed.";
@@ -340,7 +353,7 @@
   // ---- LINK, ally, ESM fixes ----
   function toggleLink(ship, emcon) { if (ship.dead[1]) return "Sensors destroyed."; if (emcon) { ship.link = false; return "EMCON active: LINK unavailable."; } ship.link = !ship.link; return "LINK " + (ship.link ? "ON." : "OFF."); } // LINK is an emission: off under EMCON
   function newAlly(x, y) { return initUnit({ id: "A1", escort: true, emit: { name: "AN/SPY-1D", range: CFG.RADAR.RANGE }, emitting: false, ai: newAi(99, null), x, y, hdg: 0, spd: 0 }, "blue", "ai", 77); }
-  function resetAlly(al, x, y) { al.x = x; al.y = y; al.hdg = 0; al.spd = 0; al.dead = [false, false, false, false]; al.sunk = false; al.wreck = false; al.ecm = false; al.fire = null; al.def = newDef(); al.loadout = newLoadout(); al.emitting = false; if (al.ai) resetAi(al.ai); }
+  function resetAlly(al, x, y) { al.x = x; al.y = y; al.hdg = 0; al.spd = 0; al.ordHdg = 0; al.ordSpd = 0; al.dead = [false, false, false, false]; al.sunk = false; al.wreck = false; al.ecm = false; al.fire = null; al.def = newDef(); al.loadout = newLoadout(); al.emitting = false; if (al.ai) resetAi(al.ai); }
   function allyStep(al, ship, dt) { stepUnit(al, dt, ship); } // the ally = an AI unit with escort:true
   function rays(x1, y1, b1, x2, y2, b2) { // where two bearing rays (deg, north = 0) cross; null if near parallel, behind an observer, or too far
     const a = b1 * Math.PI / 180, c = b2 * Math.PI / 180, ax = Math.sin(a), ay = Math.cos(a), bx = Math.sin(c), by = Math.cos(c), det = bx * ay - ax * by, ex = x2 - x1, ey = y2 - y1;
@@ -417,8 +430,8 @@
     return P;
   }
   const rec = (a, f) => a.trk[keyOf(f)] || (a.trk[keyOf(f)] = newTrk());
-  function emitOf(f, radarOn) { // what a unit radiates that an opposing ESM can hear (nm)
-    if (isShip(f)) return Math.max(radarOn && !f.dead[1] ? CFG.RADAR.RANGE : 0, f.def.ecm && !f.dead[3] ? CFG.DEFENSE.ECM.EMIT : 0, f.link && !f.dead[1] ? CFG.LINK.EMIT : 0); // radar, jamming, LINK
+  function emitOf(f) { // what a unit radiates that an opposing ESM can hear (nm)
+    if (isShip(f)) return Math.max(f.radar && f.radar.on && !f.dead[1] ? CFG.RADAR.RANGE : 0, f.def.ecm && !f.dead[3] ? CFG.DEFENSE.ECM.EMIT : 0, f.link && !f.dead[1] ? CFG.LINK.EMIT : 0); // radar, jamming, LINK
     return f.emitting && f.emit && !f.sunk && !(f.dead && f.dead[1]) ? f.emit.range : 0; }
   // LINK: while on (and our SENSORS alive) our radar tracks are shared with the linked friendly unit's AI picture: the ally "sees" what we track, at any distance.
   // Shared tracks refresh its record each call (quality = best of both); an identified contact (our tag hostile) is also known hostile to it.
@@ -433,29 +446,23 @@
       const t = trkOf(ship, c), better = r.q > (t.tracked ? t.q : 0); t.seen = true; t.tracked = true; t.lk = true; if (better) { t.q = r.q; t.px = r.px; t.py = r.py; } t.lastHit = ship.radar ? ship.radar.t : t.lastHit; } }
   function aiStep(c, ship, radarOn, dt, ally, contacts) {
     const a = c.ai, A = CFG.AI; if (!a) return;
-    a.t += dt; a.sw += dt; a.es += dt;
+    a.t += dt;
     const foes = foesOf(c, ship, ally, contacts); let P = bindPrimary(a, foes);
     if (c.sunk || (c.dead && c.dead[1])) { c.emitting = false; if (c.radar) c.radar.on = false; for (const k in a.trk) { if (k === String(a.pid)) { a.trk[k].tracked = false; a.trk[k].q = 0; } else delete a.trk[k]; } a.hears = null; if (a.state !== "patrol") { a.lost += dt; if (a.lost > A.GIVE_UP) { a.state = "patrol"; a.idp = 0; } } return; } // sensors destroyed: no radar, no ESM
     const unkT = () => Object.keys(a.trk).filter(k => k !== "_" && a.trk[k].tracked && a.trk[k].known === null); // tracked foes not yet identified
-    c.radar = c.radar || { on: true }; { const want = (a.state === "id" && unkT().length > 0) || (a.t % A.DUTY_PERIOD) < A.DUTY_ON; if (c.dead) command(c, { type: "radar", on: want }, { contacts: [], missiles: [] }); else c.radar.on = want; } c.emitting = c.radar.on; // the AI switches its radar with the same command as a player (SENSORS station). 20/60 duty cycle always (also in combat); exception: while identifying an unknown it holds a track, radar stays ON until identified or the contact is lost
+    if (!c.radar || c.radar.ang === undefined) c.radar = Object.assign(newRadar(a.seed ^ 0x2545), { on: c.radar ? c.radar.on : true }); // bare test contacts get a beam lazily
+    if (!c.esmS) c.esmS = newEsm(a.seed ^ 0x5bd1);
+    { const idle = Object.keys(a.trk).some(k => k !== "_" && a.trk[k].idActive && a.trk[k].tracked), want = idle || (a.state === "id" && unkT().length > 0) || (a.t % A.DUTY_PERIOD) < A.DUTY_ON; if (c.dead) command(c, { type: "radar", on: want }, { contacts: [], missiles: [] }); else c.radar.on = want; } c.emitting = c.radar.on; // same SENSORS command as a player. 20/60 duty cycle; exception: while identifying a tracked foe the radar stays ON until identified or the track is lost
     const D = f => Math.hypot(f.x - c.x, f.y - c.y); let d = P ? D(P) : Infinity;
-    if (c.emitting) { // radar: one roll per sweep period per foe, same model as ours
-      while (a.sw >= A.SWEEP) { a.sw -= A.SWEEP;
-        for (const f of foes) { if (!isShip(f) && f.sunk) continue;
-          const r = rec(a, f), df = D(f), rd = c.emit.range * Math.pow((f.rcs || A.SHIP_RCS) / CFG.RADAR.RCS_REF, 0.25); // no horizon cap on range itself: cross section only
-          const p = df > CFG.RADAR.HORIZON ? 0 : 1 / (1 + Math.exp(-(rd - df) / (0.15 * rd))); // same horizon cap as ours
-          if (rand(a) < p) { r.q += (1 - r.q) * CFG.RADAR.Q_HIT; r.tracked = true; r.lk = false; r.px = f.x; r.py = f.y; if (keyOf(f) === a.pid) { a.dist = df; a.brg = norm(Math.atan2(f.x - c.x, f.y - c.y) * 180 / Math.PI); } }
-          else if (r.tracked) r.q -= CFG.RADAR.Q_MISS; }
-      }
-    } else { a.sw = 0; for (const k in a.trk) if (a.trk[k].tracked) a.trk[k].q -= A.COAST * dt; } // silent: tracks coast and decay
+    radarSweep(c, c.radar, foes, dt); // the shared radar driver (beam, rolls, quality, drops)
+    if (P && a.tracks) { a.dist = D(P); a.brg = norm(Math.atan2(P.x - c.x, P.y - c.y) * 180 / Math.PI); }
     for (const k in a.trk) { if (k === "_") continue; const f = foes.find(u => String(keyOf(u)) === k), r = a.trk[k];
       if (!f || (!isShip(f) && f.sunk)) { if (k !== String(a.pid)) delete a.trk[k]; } else if (r.tracked && r.q < CFG.RADAR.Q_DROP) { r.tracked = false; r.q = 0; } }
-    // per-foe identification, in parallel: every tracked foe with unknown identity gains progress while our radar emits (distance-based time, same as ours);
-    // losing that foe's track resets only its own progress. Result is stored per foe (r.known), so switching foes never forgets or restarts.
-    for (const k in a.trk) { if (k === "_") continue; const r = a.trk[k]; if (r.known !== null) continue;
-      const f = foes.find(u => String(keyOf(u)) === k); if (!f) continue;
-      if (!r.tracked) { r.idProg = 0; continue; }
-      if (c.emitting) { r.idProg += dt / aiIdTime(D(f)); if (r.idProg >= 1) { r.idProg = 0; r.known = relOf(f); } } }
+    // per-foe identification, in parallel: for every tracked foe of unknown identity it issues the same `identify` command a player does (radar on, SENSORS alive); the shared
+    // identify routine advances each one, losing a foe's track resets only that foe. The result lives in that foe's record (r.known), so switching foes never forgets it.
+    { const view = foes.map(f => ({ id: keyOf(f), seen: true, sunk: !isShip(f) && !!f.sunk })), ctx = { radar: AI_RADAR, contacts: view, missiles: [] };
+      if (c.radar.on) for (const f of foes) { if (!isShip(f) && f.sunk) continue; const r = rec(a, f); if (r.tracked && r.known === null && !r.idActive) { if (c.dead) command(c, { type: "identify", id: keyOf(f) }, ctx); else startIdent(r); } }
+      identifySweep(c, foes, dt); }
     const hostT = () => Object.keys(a.trk).filter(k => k !== "_" && a.trk[k].tracked && a.trk[k].known === "host").sort((x, y) => a.trk[y].q - a.trk[x].q);
     const rebind = k => { if (String(a.pid) === k) return; const f = foes.find(u => String(keyOf(u)) === k), r = a.trk[k]; a.pid = keyOf(f); P = f; d = D(f); a.dist = d; a.lost = 0; a.brg = norm(Math.atan2(f.x - c.x, f.y - c.y) * 180 / Math.PI); };
     // behaviour: a tracked foe known hostile = engage (hunt it); else any tracked unknown = identify; else a heard emitter = investigate
@@ -472,12 +479,9 @@
       if (a.lost > A.GIVE_UP) a.state = "patrol"; // lost it for too long: back to patrol
     }
     if (a.state === "id" && a.lost > A.GIVE_UP) a.state = "patrol";
-    while (a.es >= CFG.ESM.INTERVAL) { a.es -= CFG.ESM.INTERVAL; // ESM: hears opposing emitters, bearing only (first foe heard wins the single bearing slot)
-      for (const f of foes) { const er = emitOf(f, radarOn); if (er <= 0) continue;
-        if (rand(a) < pEsm(D(f), { emit: { range: er }, emitting: true, h: A.SHIP_H })) {
-          if (!a.hears) a.nHear++; a.hears = { brg: norm(Math.atan2(f.x - c.x, f.y - c.y) * 180 / Math.PI + gauss(a) * CFG.ESM.SIGMA), t: a.t }; a.hb = a.hears.brg; break; } }
-    }
-    if (a.hears && a.t - a.hears.t > CFG.ESM.HOLD) a.hears = null;
+    esmSweep(c, c.esmS, foes, dt); // the shared ESM driver; `hears` = the freshest bearing among its foes (what the FSM and the fix code read)
+    { let best = null; for (const k in a.trk) { const e = a.trk[k].esm; if (e && (!best || e.t > best.t)) best = e; }
+      if (best) { const t = a.t - (c.esmS.t - best.t); if (!a.hears) a.nHear++; if (!a.hears || a.hears.t !== t) a.hb = best.brg; a.hears = { brg: best.brg, t }; } else a.hears = null; }
   }
   // Launch rule (real dt): while engaging, one launch per FIRE_CD seconds at a foe it holds a solid track on (q > FIRE_Q), random pick among solid foes,
   // or at a FIX it knows is hostile. Weapon = random pick among those that reach (ASM only beyond SSM range). The missile goes through the same stepMissiles code as any other.
@@ -525,8 +529,8 @@
       case "radar": rad.on = !!cmd.on; return R(true); // plain radar switch (AI duty cycle): no side effects on ECM / LINK
       case "emcon": rad.on = !cmd.on; if (cmd.on) { u.def.ecm = false; u.link = false; } return R(true); // EMCON on = radar silent; jamming and LINK are emissions, forced off
       case "link": { const m = toggleLink(u, emcon); return R(!/unavailable|destroyed/i.test(m), m); }
-      case "identify": { const c = byId(ctx.contacts, cmd.id); if (!c || !c.seen) return R(false, "Select a contact."); return R(startIdentify(c)); }
-      case "cancel_identify": { const c = byId(ctx.contacts, cmd.id); if (!c) return R(false); cancelIdentify(c); return R(true); }
+      case "identify": { const c = byId(ctx.contacts, cmd.id); if (!c || !c.seen) return R(false, "Select a contact."); return R(startIdent(trkOf(u, c))); }
+      case "cancel_identify": { const c = byId(ctx.contacts, cmd.id); if (!c) return R(false); cancelIdentify(trkOf(u, c)); return R(true); }
       case "tag": { const c = byId(ctx.contacts, cmd.id); return R(!!c && setTag(c, cmd.cls)); }
       case "fire": { const c = ctx.contacts.find(k => k.id === cmd.id && k.seen && !k.sunk), why = fireCheck(u, cmd.slot, c); if (why) return R(false, why); return R(startFire(u, cmd.slot, c)); }
       case "cancel_fire": cancelFire(u); return R(true);
