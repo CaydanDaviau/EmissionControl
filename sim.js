@@ -516,12 +516,17 @@
     const R = (ok, msg) => ({ ok, msg: msg || "" }), st = cmd && CMD_STN[cmd.type];
     if (cmd && (cmd.type === "take_station" || cmd.type === "release_station")) { // crew: hold or give up a station (unit.holds unset = all held; solo)
       const i = +cmd.stn; if (!(i >= 0 && i < 4)) return R(false, "Bad station.");
+      if (ctx && ctx.pid != null) { // per-player seats (network): u.seats[stn] = ids of the players holding it; several players may share a station
+        const s = u.seats || (u.seats = [[], [], [], []]), has = s[i].includes(ctx.pid);
+        if (cmd.type === "take_station") { if (u.dead[i]) return R(false, STN_LONG[i] + " destroyed."); if (!has) s[i].push(ctx.pid); } else if (has) s[i] = s[i].filter(p => p !== ctx.pid);
+        return R(true); }
       const h = u.holds || (u.holds = [true, true, true, true]);
       if (cmd.type === "take_station") { if (u.dead[i]) return R(false, STN_LONG[i] + " destroyed."); h[i] = true; } else h[i] = false;
       return R(true); }
     if (st === undefined) return R(false, "Unknown command.");
     if (u.dead[st]) return R(false, STN_LONG[st] + " destroyed.");
     if (u.holds && !u.holds[st]) return R(false, "You do not hold " + STN_LONG[st] + ".");
+    if (ctx && ctx.pid != null && u.seats && !u.seats[st].includes(ctx.pid)) return R(false, "You do not hold " + STN_LONG[st] + "."); // network issuer: unseated players (and unheld stations) are refused; no seats yet = solo, everything allowed
     const rad = u.radar || ctx.radar, emcon = u.ctl === "human" && !rad.on && !u.dead[1], byId = (list, id) => list.find(k => k.id === id && !k.marker && !k.sunk);
     switch (cmd.type) {
       case "set_course": { const v = +cmd.hdg; if (!isFinite(v)) return R(false, "Bad heading."); u.ordHdg = norm(v); return R(true); }
@@ -540,6 +545,27 @@
       case "ciws": setCiws(u, cmd.uid == null ? null : cmd.uid); return R(true);
     }
   }
-  const api = { linkShare, command, trkOf, reloadStep, newTrk, toggleLink, newAlly, resetAlly, allyStep, stepUnit, launchMissile, rays, fixStep, aiFixStep, initEnemy, resetEnemy, aiDefStep, aiSamMove, allyDefStep, allySamMove, resetAi, aiIdTime, aiFireStep, newAi, aiStep, ciwsStep, ecmStep, toggleEcm, deployDecoy, launchSam, setCiws, stepDefense, reap, defCheck, CFG, norm, diff, newShip, step, newRadar, newContact, pDetect, radarStep, setTag, stepContact, newEsm, pEsm, esmStep, startIdentify, cancelIdentify, identifyStep, identifyTime, fireCheck, startFire, cancelFire, fireStep, stepMissiles, hitShip, debugMissile, resetShip, STN };
+  // ---- crew + filtered view (network prerequisites) ----
+  function dropPlayer(u, pid) { if (u.seats) u.seats = u.seats.map(s => s.filter(p => p !== pid)); } // a disconnected player gives up every seat
+  const seatsOf = (u, pid) => [0, 1, 2, 3].map(i => !u.seats || u.seats[i].includes(pid)); // which stations player pid may use on unit u (no seats yet = all)
+  // viewFor(units, missiles, viewer, pid): the ONLY data a client receives (plain JSON, never ground truth): own ship state, the viewer's own track table
+  // (last detected positions, no real positions, RCS or hidden side), the viewer's FIX markers, and the missiles it may know about
+  // (own team's always; others only if aimed at the viewer or inside the radar horizon).
+  function viewFor(units, missiles, v, pid) {
+    const r1 = n => Math.round(n * 100) / 100, me = isShip(v) ? "own" : v.id, T = v.ai ? v.ai.trk : (v.trk || {}), byKey = {};
+    for (const u of units) byKey[keyOf(u)] = u;
+    const tracks = [];
+    for (const k of Object.keys(T)) { const r = T[k], f = byKey[k]; if (k === "_" || !r.seen || !f || (f.sunk && !isShip(f))) continue;
+      const dx = r.px - v.x, dy = r.py - v.y; // from the last DETECTED position
+      tracks.push({ id: k, tracked: r.tracked, q: r1(r.q), brg: r1(norm(Math.atan2(dx, dy) * 180 / Math.PI)), rng: r1(Math.hypot(dx, dy)), px: r1(r.px), py: r1(r.py), cls: r.cls, identified: r.identified, idActive: r.idActive, idProg: r1(r.idProg), idNote: r.idNote, esm: r.esm ? { brg: r1(r.esm.brg), t: r.esm.t } : null }); }
+    const ms = [];
+    for (const m of missiles) { const atMe = m.tid === me, mine = (m.side === "enemy") === (v.team === "red"); // m.side is relative to the player ship: own/ally = blue team, enemy = red team
+      if (!(mine || atMe || Math.hypot(m.x - v.x, m.y - v.y) <= CFG.RADAR.HORIZON)) continue;
+      ms.push({ uid: m.uid, n: m.n, lbl: m.lbl || null, side: m.side, w: m.w, x: r1(m.x), y: r1(m.y), hdg: r1(m.hdg), spd: m.spd, state: m.state || null, atMe, tid: mine ? m.tid : null }); }
+    return { id: me, team: v.team, own: { x: r1(v.x), y: r1(v.y), hdg: r1(v.hdg), spd: r1(v.spd), ordHdg: r1(v.ordHdg || 0), ordSpd: v.ordSpd || 0, dead: v.dead.slice(), sunk: v.sunk, wreck: v.wreck, holds: pid != null ? seatsOf(v, pid) : (v.holds ? v.holds.slice() : [true, true, true, true]), radarOn: !!(v.radar && v.radar.on), ecm: !!v.def.ecm, link: !!v.link,
+      loadout: v.loadout.map(l => ({ w: l.w, ammo: l.ammo })), def: { decoy: v.def.decoy, sam: v.def.sam, cd: r1(v.def.cd), samCd: r1(v.def.samCd), ciws: v.def.ciws, ciwsOn: v.def.ciwsOn }, fire: v.fire ? { slot: v.fire.slot, tid: v.fire.tid, t: r1(v.fire.t) } : null, fireMsg: v.fireMsg || "", hitMsg: v.hitMsg || "", hitSeq: v.hitSeq || 0 },
+      tracks, fixes: (v.fixes || []).map(f => ({ id: f.id, emId: f.emId, px: r1(f.px), py: r1(f.py), t: r1(f.t) })), missiles: ms };
+  }
+  const api = { dropPlayer, seatsOf, viewFor, linkShare, command, trkOf, reloadStep, newTrk, toggleLink, newAlly, resetAlly, allyStep, stepUnit, launchMissile, rays, fixStep, aiFixStep, initEnemy, resetEnemy, aiDefStep, aiSamMove, allyDefStep, allySamMove, resetAi, aiIdTime, aiFireStep, newAi, aiStep, ciwsStep, ecmStep, toggleEcm, deployDecoy, launchSam, setCiws, stepDefense, reap, defCheck, CFG, norm, diff, newShip, step, newRadar, newContact, pDetect, radarStep, setTag, stepContact, newEsm, pEsm, esmStep, startIdentify, cancelIdentify, identifyStep, identifyTime, fireCheck, startFire, cancelFire, fireStep, stepMissiles, hitShip, debugMissile, resetShip, STN };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.Sim = api;
 })(typeof self !== "undefined" ? self : this);

@@ -566,3 +566,49 @@ test("shared drivers: AI uses the beam radar and ESM; identify via command; move
   c.dead[0] = true; const h = c.ordHdg; c.ai.state = "engage"; c.ai.tracks = true; c.ai.lx = 0; c.ai.ly = -50; Sim.stepUnit(c, 1, s); assert.equal(c.ordHdg, h, "NAV destroyed: set_course refused, orders held");
   const e = mkEn(30); e.ai.wp = [[0, 60]]; e.ai.i = 0; e.spd = 0; e.ordSpd = 0; Sim.stepUnit(e, 1, s); assert.equal(e.ordSpd, Sim.CFG.CRUISE, "patrol order issued as set_speed"); assert.ok(e.spd > 0 && e.spd < Sim.CFG.CRUISE, "and the unit accelerates like a ship");
 });
+
+// ---- per-connection seats + filtered view ----
+test("per-player seats: unseated player refused, seated allowed, stations shared, drop releases", () => {
+  const ship = Sim.newShip(), ctx = pid => ({ contacts: [], missiles: [], pid });
+  assert.ok(Sim.command(ship, { type: "set_speed", kt: 10 }, ctx("a")).ok, "no seats yet = solo, all allowed");
+  assert.ok(Sim.command(ship, { type: "take_station", stn: 0 }, ctx("a")).ok);
+  assert.ok(Sim.command(ship, { type: "take_station", stn: 1 }, ctx("b")).ok);
+  assert.ok(Sim.command(ship, { type: "set_speed", kt: 15 }, ctx("a")).ok);
+  assert.equal(Sim.command(ship, { type: "set_speed", kt: 5 }, ctx("b")).ok, false, "b holds only SENSORS");
+  assert.match(Sim.command(ship, { type: "set_speed", kt: 5 }, ctx("c")).msg, /do not hold NAVIGATION/);
+  assert.equal(ship.ordSpd, 15);
+  Sim.command(ship, { type: "take_station", stn: 0 }, ctx("b")); // shared station
+  assert.ok(Sim.command(ship, { type: "set_speed", kt: 20 }, ctx("b")).ok);
+  Sim.command(ship, { type: "release_station", stn: 0 }, ctx("a"));
+  assert.equal(Sim.command(ship, { type: "set_speed", kt: 1 }, ctx("a")).ok, false);
+  assert.ok(Sim.command(ship, { type: "set_speed", kt: 25 }, ctx("b")).ok, "b still holds NAV");
+  Sim.dropPlayer(ship, "b"); assert.deepEqual(Sim.seatsOf(ship, "b"), [false, false, false, false]);
+  assert.equal(Sim.command(ship, { type: "set_speed", kt: 2 }, ctx("b")).ok, false);
+  ship.dead[3] = true; assert.equal(Sim.command(ship, { type: "take_station", stn: 3 }, ctx("a")).ok, false, "destroyed station cannot be taken");
+  assert.ok(Sim.command(ship, { type: "set_speed", kt: 3 }, { contacts: [], missiles: [] }).ok, "legacy (no pid) issuer ignores seats");
+});
+test("viewFor: plain JSON, no ground truth (no true positions/side/rcs of foes), tracks from own picture only", () => {
+  const ship = Sim.newShip(), c = mkEn(20); c.id = 7; c.side = "enemy"; c.rcs = 12345;
+  const units = [ship, c]; const T = Sim.trkOf(ship, c); T.seen = true; T.tracked = true; T.q = 0.8; T.px = 3; T.py = 4;
+  const far = mkEn(90); far.id = 8; Sim.trkOf(ship, far); // never seen -> must not appear
+  const v = Sim.viewFor([ship, c, far], [], ship, null);
+  assert.equal(v.tracks.length, 1); const t = v.tracks[0];
+  assert.equal(t.id, "7"); assert.equal(t.rng, 5); assert.ok(Math.abs(t.brg - 36.87) < 0.01);
+  const s = JSON.stringify(v); assert.ok(!/rcs|12345|"side"/.test(s.replace(/"side":"(own|ally|enemy)"/g, "")), "no hidden truth");
+  assert.ok(!("x" in t) && !("y" in t), "no true foe position");
+  assert.deepEqual(JSON.parse(s), v, "round-trips as JSON");
+  assert.deepEqual(v.own.holds, [true, true, true, true]);
+  c.sunk = true; assert.equal(Sim.viewFor(units, [], ship).tracks.length, 0, "sunk foe dropped");
+});
+test("viewFor: missiles filtered (own team always; foes only if aimed at me or within the horizon); seats in own.holds", () => {
+  const ship = Sim.newShip(), c = mkEn(20); c.id = 7;
+  const ms = [ { uid: 1, n: 1, side: "own", w: "ssm", tid: 99, x: 50, y: 50, hdg: 0, spd: 480 },
+    { uid: 2, n: 1, side: "enemy", w: "ssm", tid: "own", x: 90, y: 0, hdg: 270, spd: 480 },
+    { uid: 3, n: 2, side: "enemy", w: "ssm", tid: "A1", x: 90, y: 90, hdg: 0, spd: 480 },
+    { uid: 4, n: 3, side: "enemy", w: "asm", tid: "A1", x: 10, y: 0, hdg: 0, spd: 500 } ];
+  const v = Sim.viewFor([ship, c], ms, ship, null), ids = v.missiles.map(m => m.uid);
+  assert.deepEqual(ids, [1, 2, 4]); assert.equal(v.missiles[1].atMe, true); assert.equal(v.missiles[2].atMe, false); assert.equal(v.missiles[2].tid, null, "foe missile target not revealed");
+  Sim.command(ship, { type: "take_station", stn: 2 }, { contacts: [], missiles: [], pid: "p1" });
+  assert.deepEqual(Sim.viewFor([ship, c], ms, ship, "p1").own.holds, [false, false, true, false]);
+  const vr = Sim.viewFor([ship, c], ms, c, null); assert.deepEqual(vr.missiles.map(m => m.uid), [2, 3, 4], "red viewer: its own-team missiles; the blue missile at 58 nm stays hidden");
+});
