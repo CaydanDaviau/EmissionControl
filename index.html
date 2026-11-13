@@ -85,6 +85,10 @@ tr.sel{background:#2a2f33}
 .dead>*:not(.stRow){display:none!important}
 .dead::after{content:"DESTROYED";display:flex;flex:1;align-items:center;justify-content:center;min-height:240px;color:#ff4a4a;font-size:22px;letter-spacing:3px}
 .navdead #secSpd,.navdead #secHdg{display:none}
+.nothold::before{content:"NOT YOUR STATION \2014  VIEW ONLY";display:block;color:#ff9a2e;font-size:11px;letter-spacing:2px;text-align:center;padding:3px}
+.nothold button:not(.stb),.nothold input{pointer-events:none;opacity:.4}
+.navnot #secSpd button,.navnot #secHdg button,.navnot #secHdg input{pointer-events:none;opacity:.4}
+.ov .stnrow{display:flex;gap:6px;width:220px}.ov .stnrow button{flex:1;width:auto;padding:9px 0;font-size:11px}
 #navDeadSec{display:none;color:#ff4a4a;letter-spacing:2px;text-align:center}.navdead #navDeadSec{display:block}
 #banner{position:absolute;left:0;right:0;bottom:6px;text-align:center;pointer-events:none;z-index:10;color:#ff4a4a;font-weight:bold;font-size:15px;text-shadow:0 0 4px #000;display:none}
 .ov button.dbg{width:220px;padding:9px;font-size:12px;color:var(--dim);border-style:dashed}
@@ -206,7 +210,7 @@ tr.sel{background:#2a2f33}
     </div>
   </div>
 </div>
-<div class="ov show" id="menu"><h1>EMCON</h1><button id="startB">START</button><button id="setB">&#9881; SETTINGS</button><button id="dbgR" class="dbg">DEBUG: REPAIR / RESET</button></div>
+<div class="ov show" id="menu"><h1>EMCON</h1><button id="startB">START</button><button id="setB">&#9881; SETTINGS</button><div class="stnrow" id="stnRow"><button data-i="0"></button><button data-i="1"></button><button data-i="2"></button><button data-i="3"></button></div><button id="dbgR" class="dbg">DEBUG: REPAIR / RESET</button></div>
 
 <div class="ov" id="settings"><h1>SETTINGS</h1><div class="row"><span class="lbl">Radar sweep</span><button id="sweepB" style="width:100px">On</button></div><button id="backB">BACK</button></div>
 <script src="sim.js"></script>
@@ -584,7 +588,12 @@ $("backB").onclick=()=>{ $("settings").classList.remove("show"); $("menu").class
 $("sweepB").onclick=()=>{ sweepOn=!sweepOn; try{localStorage.setItem("emcon.sweep",sweepOn?"1":"0");}catch(e){} sweepUi(); };
 sweepUi();
 // ---- damage: destroyed stations show DESTROYED; debug buttons live in the menu ----
-function applyDmg(){ $("sensPage").classList.toggle("dead",ship.dead[1]); $("wpnPage").classList.toggle("dead",ship.dead[2]);
+const STN_SHORT=["NAV","SENS","WPN","DEF"];
+for(const b of $("stnRow").children) b.onclick=()=>{ const i=+b.dataset.i, held=!ship.holds||ship.holds[i]; cmdr({type:held?"release_station":"take_station",stn:i}); applyDmg(); };
+function applyDmg(){ const hd=i=>!ship.holds||ship.holds[i]; // stations you do not hold: view only
+  $("navPage").classList.toggle("navnot",!hd(0)); $("sensPage").classList.toggle("nothold",!hd(1)&&!ship.dead[1]); $("wpnPage").classList.toggle("nothold",!hd(2)&&!ship.dead[2]); $("defPage").classList.toggle("nothold",!hd(3)&&!ship.dead[3]);
+  for(const b of $("stnRow").children){ const i=+b.dataset.i; b.textContent=STN_SHORT[i]+(ship.dead[i]?" X":hd(i)?" \u2713":" \u2014"); b.classList.toggle("on",hd(i)&&!ship.dead[i]); }
+  $("sensPage").classList.toggle("dead",ship.dead[1]); $("wpnPage").classList.toggle("dead",ship.dead[2]);
   $("defPage").classList.toggle("dead",ship.dead[3]); $("navPage").classList.toggle("navdead",ship.dead[0]); }
 $("dbgR").onclick=()=>{ Sim.resetShip(ship); radar.on=true; missiles.length=0; fixes.length=0; Sim.resetAlly(ally,15,0); linkMsg=""; for(const c of contacts) if(c.ai) Sim.resetEnemy(c); msel=null; defMsg=""; bannerT=0; applyDmg(); sensUi(); };
 

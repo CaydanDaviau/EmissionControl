@@ -247,7 +247,7 @@
     missiles.push({ uid: ++ship.uid, n: ship.nEnemy, lbl: "H" + ship.nEnemy, side: "enemy", w, tid: "own", x: ship.x + Math.sin(a) * d, y: ship.y + Math.cos(a) * d, hdg: norm(b + 180), spd: W.speed, fuel: W.range });
   }
   function resetShip(ship) { ship.def = newDef(); ship.loadout = newLoadout(); ship.ecm = false;
-    ship.dead = [false, false, false, false]; ship.link = false; ship.sunk = false; ship.wreck = false; ship.fire = null; ship.fireMsg = ""; ship.hitMsg = ""; }
+    ship.dead = [false, false, false, false]; ship.link = false; ship.holds = null; ship.sunk = false; ship.wreck = false; ship.fire = null; ship.fireMsg = ""; ship.hitMsg = ""; }
   function stepMissiles(missiles, contacts, dt, ship, ally) { // scaled dt. tid "own" = aimed at the own ship (true position). Others: last known position, no damage yet
     for (let i = missiles.length - 1; i >= 0; i--) {
       const m = missiles[i], W = CFG.WEAPONS[m.w], own = m.tid === "own";
@@ -497,6 +497,11 @@
   const STN_LONG = ["NAVIGATION", "SENSORS", "WEAPONS", "DEFENSE"];
   function command(u, cmd, ctx) {
     const R = (ok, msg) => ({ ok, msg: msg || "" }), st = cmd && CMD_STN[cmd.type];
+    if (cmd && (cmd.type === "take_station" || cmd.type === "release_station")) { // crew: hold or give up a station (unit.holds unset = all held; solo)
+      const i = +cmd.stn; if (!(i >= 0 && i < 4)) return R(false, "Bad station.");
+      const h = u.holds || (u.holds = [true, true, true, true]);
+      if (cmd.type === "take_station") { if (u.dead[i]) return R(false, STN_LONG[i] + " destroyed."); h[i] = true; } else h[i] = false;
+      return R(true); }
     if (st === undefined) return R(false, "Unknown command.");
     if (u.dead[st]) return R(false, STN_LONG[st] + " destroyed.");
     if (u.holds && !u.holds[st]) return R(false, "You do not hold " + STN_LONG[st] + ".");

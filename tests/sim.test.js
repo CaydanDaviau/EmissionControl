@@ -497,3 +497,13 @@ test("AI fire: countdown aborts if its weapons die; a stale aim point misses an 
   Sim.stepMissiles(l, [], 0.1, s, al); assert.equal(l.length, 0, "reached the stale point"); assert.ok(/MISSED/.test(s.hitMsg));
   const m2 = { uid: 5, side: "enemy", w: "ssm", tid: "A1", x: 0, y: 0, hdg: 0, spd: 480, fuel: 99, tx: 0, ty: 20, n: 1 }; al.x = 0; al.y = 4; Sim.stepMissiles([m2], [], 0.1, s, al); assert.equal(m2.tx, undefined, "ally within seeker range: acquired");
 });
+
+test("stations: release blocks that station's commands, take restores; destroyed stations cannot be taken", () => {
+  const s = Sim.newShip(), ctx = { radar: { on: true }, contacts: [], missiles: [] }, cmd = o => Sim.command(s, o, ctx);
+  assert.ok(cmd({ type: "set_speed", kt: 10 }).ok, "solo holds all");
+  assert.ok(cmd({ type: "release_station", stn: 0 }).ok); assert.deepEqual(s.holds, [false, true, true, true]);
+  assert.match(cmd({ type: "set_speed", kt: 5 }).msg, /do not hold NAVIGATION/); assert.equal(s.ordSpd, 10); assert.ok(cmd({ type: "emcon", on: true }).ok, "other stations unaffected");
+  assert.ok(cmd({ type: "take_station", stn: 0 }).ok); assert.ok(cmd({ type: "set_speed", kt: 5 }).ok);
+  s.dead[2] = true; cmd({ type: "release_station", stn: 2 }); assert.match(cmd({ type: "take_station", stn: 2 }).msg, /destroyed/); assert.equal(cmd({ type: "take_station", stn: 9 }).ok, false);
+  Sim.resetShip(s); assert.equal(s.holds, null);
+});
