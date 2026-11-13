@@ -1,4 +1,4 @@
-name = "emcon-signal"
+name = "emissioncontrol"
 main = "src/worker.mjs"
 compatibility_date = "2025-01-01"
 

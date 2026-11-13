@@ -38,7 +38,7 @@ export default {
       if (req.headers.get("Upgrade") !== "websocket") return new Response("Expected WebSocket", { status: 426 });
       return env.ROOM.get(env.ROOM.idFromName(normCode(m[1]))).fetch(req);
     }
-    return json({ ok: true, service: "emcon-signal" });
+    return json({ ok: true, service: "emissioncontrol" });
   },
 };
 
