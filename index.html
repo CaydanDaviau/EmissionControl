@@ -219,7 +219,8 @@ tr.sel{background:#2a2f33}
 <button id="mpList">ROOM LIST</button>
 <div id="mpRooms" style="width:220px;font-size:12px;color:var(--dim)"></div>
 <div id="mpLog" style="width:220px;font-size:12px;min-height:60px;white-space:pre-wrap"></div>
-<button id="mpPing" style="display:none">PING</button><button id="mpBack">BACK</button></div>
+<div id="mpView" style="display:none;width:260px;font-size:11px"><pre id="mpTxt" style="margin:0 0 8px;white-space:pre-wrap;color:#ddd"></pre><div class="stnrow" style="width:260px"><button data-s="0">NAV</button><button data-s="1">SENS</button><button data-s="2">WPN</button><button data-s="3">DEF</button></div><div class="stnrow" style="width:260px;margin-top:6px"><button data-v="0">STOP</button><button data-v="15">15 KT</button><button data-v="30">30 KT</button><button data-v="e">EMCON</button></div></div>
+<button id="mpPing" style="display:none">PING</button><button id="mpLeave" style="display:none">LEAVE ROOM</button><button id="mpBack">BACK</button></div>
 <div class="ov" id="settings"><h1>SETTINGS</h1><div class="row"><span class="lbl">Radar sweep</span><button id="sweepB" style="width:100px">On</button></div><button id="backB">BACK</button></div>
 <script src="sim.js"></script>
 <script src="net.js"></script>
@@ -594,10 +595,21 @@ function sweepUi(){ $("sweepB").textContent=sweepOn?"On":"Off"; $("sweepB").clas
 $("startB").onclick=()=>{ $("startB").textContent="RESUME"; showMenu(false); };
 $("menuB").onclick=()=>showMenu(true);
 let mpS=null; const mpLog=s=>{ $("mpLog").textContent=s; };
-const mpH={ onStatus:mpLog, onPeer:(id,n,s)=>{ mpLog((mpS&&mpS.role==="host"?"Room "+mpS.code+"\n":"")+id+(n?" ("+n+")":"")+": "+s); if(s==="open") $("mpPing").style.display=""; }, onRtt:(id,ms)=>mpLog("Ping "+id+": "+ms+" ms"), onEnd:r=>{ mpLog("Disconnected: "+r); mpS=null; $("mpPing").style.display="none"; } };
+let mpSeq=0, mpTick=0, mpV=null; const mpInbox=Sim.newInbox(), mpOpen=new Set();
+const mpUnits=()=>[ship,ally].concat(contacts), mpCtx=()=>({radar:ship.radar,contacts:all(),missiles});
+function mpRender(){ const t=$("mpTxt"); if(!mpV){ t.textContent="Waiting for host view..."; return; } const v=mpV.v,o=v.own;
+  t.textContent="HOST SHIP  X "+o.x+" Y "+o.y+"\nHDG "+o.hdg+"  SPD "+o.spd+" (ord "+o.ordSpd+")\nRadar "+(o.radarOn?"ON":"EMCON")+"  ECM "+(o.ecm?"ON":"off")+"  LINK "+(o.link?"ON":"off")+"\nSeats "+["NAV","SENS","WPN","DEF"].map((n,i)=>n+(o.holds[i]?"+":"-")+(o.dead[i]?"X":"")).join(" ")+"\nTracks "+v.tracks.length+"  Missiles "+v.missiles.length+"  Tick "+mpV.tick+"\n"+v.tracks.map(k=>k.id+" BRG "+k.brg+" RNG "+k.rng+" "+Math.round(k.q*100)+"%"+(k.tracked?"":" LOST")).join("\n")+(mpV.msg?"\n> "+mpV.msg:""); }
+const mpCmd=(type,args)=>{ if(mpS&&mpS.role==="guest") mpS.send("host",{t:"cmd",seq:++mpSeq,type,args}); };
+$("mpView").onclick=e=>{ const b=e.target.closest("button"); if(!b||!mpS||mpS.role!=="guest") return; if(b.dataset.s!==undefined){ const i=+b.dataset.s; mpCmd(mpV&&mpV.v.own.holds[i]?"release_station":"take_station",{stn:i}); } else if(b.dataset.v==="e") mpCmd("emcon",{on:!!(mpV&&mpV.v.own.radarOn)}); else mpCmd("set_speed",{kt:+b.dataset.v}); };
+setInterval(()=>{ if(!mpS||mpS.role!=="host") return; const r=Sim.drain(mpInbox,()=>ship,mpCtx()); for(const x of r) mpS.send(x.pid,x.reply); },100);
+setInterval(()=>{ if(!mpS||mpS.role!=="host") return; mpTick++; const us=mpUnits(); for(const id of mpOpen) mpS.send(id,{t:"view",tick:mpTick,v:Sim.viewFor(us,missiles,ship,id)}); },500);
+const mpH={ onStatus:mpLog, onPeer:(id,n,s)=>{ if(s==="open"){ mpOpen.add(id); $("mpPing").style.display=""; $("mpLeave").style.display=""; if(mpS&&mpS.role==="guest"){ $("mpView").style.display=""; mpRender(); } } if(s==="closed"){ mpOpen.delete(id); Sim.dropPlayer(ship,id); }
+  mpLog((mpS&&mpS.role==="host"?"Room "+mpS.code+"\nPlayers connected: "+mpOpen.size+"\nPress BACK, then START to run the game.":id+": "+s)); },
+  onMsg:(from,m)=>{ if(mpS&&mpS.role==="host"){ if(m&&m.t==="cmd") Sim.enqueue(mpInbox,from,m); } else if(m.t==="view"){ mpV={tick:m.tick,v:m.v,msg:mpV?mpV.msg:""}; mpRender(); } else if(m.t==="ack"||m.t==="err"){ if(mpV) mpV.msg=m.t==="ack"?"OK #"+m.seq:"#"+m.seq+" "+m.msg; mpRender(); } }, onRtt:(id,ms)=>mpLog("Ping "+id+": "+ms+" ms"), onEnd:r=>{ mpLog("Disconnected: "+r); mpS=null; mpV=null; mpOpen.clear(); $("mpPing").style.display="none"; $("mpLeave").style.display="none"; $("mpView").style.display="none"; } };
 const mpName=()=>$("mpName").value.trim()||"Player";
 $("mpB").onclick=()=>{ $("menu").classList.remove("show"); $("mp").classList.add("show"); };
-$("mpBack").onclick=()=>{ if(mpS){ mpS.close(); mpS=null; } $("mpPing").style.display="none"; $("mp").classList.remove("show"); $("menu").classList.add("show"); };
+$("mpBack").onclick=()=>{ $("mp").classList.remove("show"); $("menu").classList.add("show"); };
+$("mpLeave").onclick=()=>{ if(mpS){ mpS.close(); mpS=null; } mpV=null; mpOpen.clear(); for(const id of ["mpPing","mpLeave","mpView"]) $(id).style.display="none"; mpLog("Left the room."); };
 $("mpHost").onclick=async()=>{ if(mpS) mpS.close(); mpLog("Creating room..."); try{ mpS=await Net.host({name:mpName()+"'s room",player:mpName(),public:true,max:4},mpH); mpLog("Room code: "+mpS.code+"\nWaiting for players..."); }catch(e){ mpLog("Error: "+e.message); } };
 $("mpJoin").onclick=async()=>{ if(mpS) mpS.close(); mpLog("Joining..."); try{ mpS=await Net.join($("mpCode").value,mpName(),mpH); mpLog("In room "+mpS.code+"\nConnecting to host..."); }catch(e){ mpLog("Error: "+e.message); } };
 $("mpPing").onclick=()=>{ if(!mpS) return; if(mpS.role==="guest") mpS.ping("host"); else Object.keys(mpS.dcs).forEach(id=>mpS.ping(id)); };
