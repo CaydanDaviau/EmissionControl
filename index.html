@@ -244,7 +244,7 @@ const contacts=[ mkEnemy(1,0,EDGE,20261114,4242), mkEnemy(2,70,38,20261115,4343)
 const fixes=[], ally=Sim.newAlly(15,0), esmA=Sim.newEsm(20261113), all=()=>contacts.concat(fixes); // fixes = ESM crossing markers (5 s)
 const cid=v=>/^\d+$/.test(String(v))?+v:v, lbl=c=>c.marker?"FIX E"+c.esmNo:String(c.id).padStart(4,"0"); let linkMsg="";
 const missiles=[]; // own missiles in flight
-const radar=Sim.newRadar(20261111), esm=Sim.newEsm(20261112);
+const radar=ship.radar, esm=Sim.newEsm(20261112);
 let sweepOn=true; try{ sweepOn=localStorage.getItem("emcon.sweep")!=="0"; }catch(e){}
 const S={paused:true,ri:4,rings:true,labels:true,grid:true,sel:null,hup:false,ts:0,ws:null};
 let blink=0,seenHit=0,seenStrike=0,bannerT=0,msel=null,defMsg=""; // msel = selected incoming missile uid

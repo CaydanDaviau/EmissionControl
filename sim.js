@@ -36,7 +36,7 @@
   function newDef() { return { decoy: CFG.DEFENSE.DECOY.AMMO, sam: CFG.DEFENSE.SAM.AMMO, cd: 0, samCd: 0, ciws: null, ciwsOn: null, ecm: false, sams: [] }; } // defense state shared by every unit; ciws = manual target uid (null = auto), ciwsOn = uid engaged now; sams = pending intercepts
   const newLoadout = () => [{ w: "ssm", ammo: 8 }, { w: "asm", ammo: 4 }]; // missiles per weapon id; every unit carries one
   const slotOf = (u, w) => u.loadout.find(l => l.w === w);
-  function initUnit(u, team, ctl, seed) { u.loadout = newLoadout(); u.team = team; u.ctl = ctl; u.rng = { seed: seed | 0 }; u.dead = [false, false, false, false]; u.sunk = false; u.wreck = false; u.ecm = false; u.fire = null; u.fireMsg = ""; u.def = newDef(); return u; } // ctl = "human" | "ai": who issues this unit's commands
+  function initUnit(u, team, ctl, seed) { u.loadout = newLoadout(); u.team = team; u.ctl = ctl; u.rng = { seed: seed | 0 }; u.dead = [false, false, false, false]; u.sunk = false; u.wreck = false; u.ecm = false; u.fire = null; u.fireMsg = ""; u.def = newDef(); u.radar = ctl === "human" ? (u.radar || newRadar(seed)) : { on: true }; return u; } // ctl = "human" | "ai": who issues this unit's commands
   function newShip() { return initUnit({ rel: "host", x: 0, y: 0, hdg: 0, spd: 0, ordHdg: 0, ordSpd: 0,
     fire: null, fireMsg: "", nMsl: 0,
     nEnemy: 0, nAlly: 0, hitSeq: 0, hitMsg: "", uid: 0 }, "blue", "human", 20261113); } // x east nm, y north nm
@@ -247,7 +247,7 @@
     missiles.push({ uid: ++ship.uid, n: ship.nEnemy, lbl: "H" + ship.nEnemy, side: "enemy", w, tid: "own", x: ship.x + Math.sin(a) * d, y: ship.y + Math.cos(a) * d, hdg: norm(b + 180), spd: W.speed, fuel: W.range });
   }
   function resetShip(ship) { ship.def = newDef(); ship.loadout = newLoadout(); ship.ecm = false;
-    ship.dead = [false, false, false, false]; ship.link = false; ship.holds = null; ship.sunk = false; ship.wreck = false; ship.fire = null; ship.fireMsg = ""; ship.hitMsg = ""; }
+    ship.dead = [false, false, false, false]; ship.link = false; ship.radar.on = true; ship.holds = null; ship.sunk = false; ship.wreck = false; ship.fire = null; ship.fireMsg = ""; ship.hitMsg = ""; }
   function stepMissiles(missiles, contacts, dt, ship, ally) { // scaled dt. tid "own" = aimed at the own ship (true position). Others: last known position, no damage yet
     for (let i = missiles.length - 1; i >= 0; i--) {
       const m = missiles[i], W = CFG.WEAPONS[m.w], own = m.tid === "own";
@@ -424,8 +424,8 @@
     const a = c.ai, A = CFG.AI; if (!a) return;
     a.t += dt; a.sw += dt; a.es += dt;
     const foes = foesOf(c, ship, ally, contacts); let P = bindPrimary(a, foes);
-    if (c.sunk || (c.dead && c.dead[1])) { c.emitting = false; for (const k in a.trk) { if (k === String(a.pid)) { a.trk[k].tracked = false; a.trk[k].q = 0; } else delete a.trk[k]; } a.hears = null; if (a.state !== "patrol") { a.lost += dt; if (a.lost > A.GIVE_UP) { a.state = "patrol"; a.idp = 0; } } return; } // sensors destroyed: no radar, no ESM
-    c.emitting = (a.state === "id" && a.tracks) || (a.t % A.DUTY_PERIOD) < A.DUTY_ON; // 20/60 duty cycle always (also in combat); exception: while identifying an unknown it holds a track, radar stays ON until identified or the contact is lost
+    if (c.sunk || (c.dead && c.dead[1])) { c.emitting = false; if (c.radar) c.radar.on = false; for (const k in a.trk) { if (k === String(a.pid)) { a.trk[k].tracked = false; a.trk[k].q = 0; } else delete a.trk[k]; } a.hears = null; if (a.state !== "patrol") { a.lost += dt; if (a.lost > A.GIVE_UP) { a.state = "patrol"; a.idp = 0; } } return; } // sensors destroyed: no radar, no ESM
+    c.radar = c.radar || { on: true }; { const want = (a.state === "id" && a.tracks) || (a.t % A.DUTY_PERIOD) < A.DUTY_ON; if (c.dead) command(c, { type: "radar", on: want }, { contacts: [], missiles: [] }); else c.radar.on = want; } c.emitting = c.radar.on; // the AI switches its radar with the same command as a player (SENSORS station). 20/60 duty cycle always (also in combat); exception: while identifying an unknown it holds a track, radar stays ON until identified or the contact is lost
     const D = f => Math.hypot(f.x - c.x, f.y - c.y); let d = P ? D(P) : Infinity;
     if (c.emitting) { // radar: one roll per sweep period per foe, same model as ours
       while (a.sw >= A.SWEEP) { a.sw -= A.SWEEP;
@@ -493,7 +493,7 @@
   // ---- command layer: every action a controller (the human UI now; a network client or the AI later) takes on a unit goes through command(unit, cmd, ctx) -> {ok, msg}.
   // cmd = {type, ...args}. ctx = {radar, contacts (incl. FIX markers), missiles}. The same validator for everyone: the owning station must be alive and, if the unit has `holds` (crew), held by the issuer.
   const AI_RADAR = { on: true }; // AI units are never in player EMCON for jamming/LINK rules (their radar duty cycle is separate)
-  const CMD_STN = { set_course: 0, set_speed: 0, emcon: 1, link: 1, identify: 1, cancel_identify: 1, tag: 1, fire: 2, cancel_fire: 2, ecm: 3, deploy_decoy: 3, launch_sam: 3, ciws: 3 }; // index into dead[] / STN
+  const CMD_STN = { set_course: 0, set_speed: 0, emcon: 1, radar: 1, link: 1, identify: 1, cancel_identify: 1, tag: 1, fire: 2, cancel_fire: 2, ecm: 3, deploy_decoy: 3, launch_sam: 3, ciws: 3 }; // index into dead[] / STN
   const STN_LONG = ["NAVIGATION", "SENSORS", "WEAPONS", "DEFENSE"];
   function command(u, cmd, ctx) {
     const R = (ok, msg) => ({ ok, msg: msg || "" }), st = cmd && CMD_STN[cmd.type];
@@ -505,11 +505,12 @@
     if (st === undefined) return R(false, "Unknown command.");
     if (u.dead[st]) return R(false, STN_LONG[st] + " destroyed.");
     if (u.holds && !u.holds[st]) return R(false, "You do not hold " + STN_LONG[st] + ".");
-    const emcon = !ctx.radar.on && !u.dead[1], byId = (list, id) => list.find(k => k.id === id && !k.marker && !k.sunk);
+    const rad = u.radar || ctx.radar, emcon = u.ctl === "human" && !rad.on && !u.dead[1], byId = (list, id) => list.find(k => k.id === id && !k.marker && !k.sunk);
     switch (cmd.type) {
       case "set_course": { const v = +cmd.hdg; if (!isFinite(v)) return R(false, "Bad heading."); u.ordHdg = norm(v); return R(true); }
       case "set_speed": { const v = +cmd.kt; if (!isFinite(v)) return R(false, "Bad speed."); u.ordSpd = v; return R(true); }
-      case "emcon": ctx.radar.on = !cmd.on; if (cmd.on) { u.def.ecm = false; u.link = false; } return R(true); // EMCON on = radar silent; jamming and LINK are emissions, forced off
+      case "radar": rad.on = !!cmd.on; return R(true); // plain radar switch (AI duty cycle): no side effects on ECM / LINK
+      case "emcon": rad.on = !cmd.on; if (cmd.on) { u.def.ecm = false; u.link = false; } return R(true); // EMCON on = radar silent; jamming and LINK are emissions, forced off
       case "link": { const m = toggleLink(u, emcon); return R(!/unavailable|destroyed/i.test(m), m); }
       case "identify": { const c = byId(ctx.contacts, cmd.id); if (!c || !c.seen) return R(false, "Select a contact."); return R(startIdentify(c)); }
       case "cancel_identify": { const c = byId(ctx.contacts, cmd.id); if (!c) return R(false); cancelIdentify(c); return R(true); }

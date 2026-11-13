@@ -450,7 +450,7 @@ test("player track table: radar, ESM and identify write ship.trk; contact names 
 });
 
 test("command layer: validator (unknown, destroyed station, crew holds) and navigation/EMCON commands", () => {
-  const ship = Sim.newShip(), radar = Sim.newRadar(1), ctx = { radar, contacts: [], missiles: [] }, cmd = o => Sim.command(ship, o, ctx);
+  const ship = Sim.newShip(), radar = ship.radar, ctx = { contacts: [], missiles: [] }, cmd = o => Sim.command(ship, o, ctx);
   assert.equal(cmd({ type: "nope" }).ok, false); assert.equal(cmd({ type: "set_course", hdg: 370 }).ok, true); assert.equal(ship.ordHdg, 10);
   assert.equal(cmd({ type: "set_course", hdg: "x" }).ok, false); assert.equal(cmd({ type: "set_speed", kt: 15 }).ok, true); assert.equal(ship.ordSpd, 15);
   ship.def.ecm = true; ship.link = true; assert.equal(cmd({ type: "emcon", on: true }).ok, true);
@@ -506,4 +506,15 @@ test("stations: release blocks that station's commands, take restores; destroyed
   assert.ok(cmd({ type: "take_station", stn: 0 }).ok); assert.ok(cmd({ type: "set_speed", kt: 5 }).ok);
   s.dead[2] = true; cmd({ type: "release_station", stn: 2 }); assert.match(cmd({ type: "take_station", stn: 2 }).msg, /destroyed/); assert.equal(cmd({ type: "take_station", stn: 9 }).ok, false);
   Sim.resetShip(s); assert.equal(s.holds, null);
+});
+
+test("radar state lives on the unit: player EMCON and AI duty cycle both go through commands; no ECM side effects for the AI", () => {
+  const s = Sim.newShip(), c = mkEn(60), ctx = { contacts: [], missiles: [] };
+  assert.ok(s.radar.on && c.radar.on); Sim.command(s, { type: "emcon", on: true }, ctx); assert.equal(s.radar.on, false);
+  c.ai.t = 30; Sim.aiStep(c, s, true, 0.1); assert.equal(c.radar.on, false, "off window: radar command issued"); assert.equal(c.emitting, false);
+  c.def.ecm = true; Sim.aiStep(c, s, true, 0.1); assert.equal(c.def.ecm, true, "AI jamming is not cut by its radar duty");
+  assert.ok(Sim.command(c, { type: "ecm", on: true }, ctx).ok, "AI may jam while its radar is silent");
+  c.ai.t = 0; Sim.aiStep(c, s, true, 0.1); assert.equal(c.radar.on, true); assert.equal(c.emitting, true);
+  c.holds = [true, false, true, true]; c.ai.t = 30; Sim.aiStep(c, s, true, 0.1); assert.equal(c.radar.on, true, "SENSORS not held: the AI cannot switch its radar");
+  c.holds = null; c.dead[1] = true; Sim.aiStep(c, s, true, 0.1); assert.equal(c.radar.on, false); assert.equal(c.emitting, false);
 });
