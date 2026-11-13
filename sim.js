@@ -483,6 +483,32 @@
     a.cd = A.FIRE_CD;
     return launchMissile(c, w, { tid: !tgt || isShip(tgt) ? "own" : keyOf(tgt), hdg: norm(Math.atan2(px - c.x, py - c.y) * 180 / Math.PI), tx: tgt ? undefined : fx.x, ty: tgt ? undefined : fx.y }, missiles, ship); // no target = fired at a FIX: flies to that point, seeker acquires us if we are within range of it
   }
-  const api = { trkOf, newTrk, toggleLink, newAlly, resetAlly, allyStep, stepUnit, launchMissile, rays, fixStep, aiFixStep, initEnemy, resetEnemy, aiDefStep, aiSamMove, allyDefStep, allySamMove, resetAi, aiIdTime, aiFireStep, newAi, aiStep, ciwsStep, ecmStep, toggleEcm, deployDecoy, launchSam, setCiws, stepDefense, reap, defCheck, CFG, norm, diff, newShip, step, newRadar, newContact, pDetect, radarStep, setTag, stepContact, newEsm, pEsm, esmStep, startIdentify, cancelIdentify, identifyStep, identifyTime, fireCheck, startFire, cancelFire, fireStep, stepMissiles, hitShip, debugMissile, resetShip, STN };
+  // ---- command layer: every action a controller (the human UI now; a network client or the AI later) takes on a unit goes through command(unit, cmd, ctx) -> {ok, msg}.
+  // cmd = {type, ...args}. ctx = {radar, contacts (incl. FIX markers), missiles}. The same validator for everyone: the owning station must be alive and, if the unit has `holds` (crew), held by the issuer.
+  const CMD_STN = { set_course: 0, set_speed: 0, emcon: 1, link: 1, identify: 1, cancel_identify: 1, tag: 1, fire: 2, cancel_fire: 2, ecm: 3, deploy_decoy: 3, launch_sam: 3, ciws: 3 }; // index into dead[] / STN
+  const STN_LONG = ["NAVIGATION", "SENSORS", "WEAPONS", "DEFENSE"];
+  function command(u, cmd, ctx) {
+    const R = (ok, msg) => ({ ok, msg: msg || "" }), st = cmd && CMD_STN[cmd.type];
+    if (st === undefined) return R(false, "Unknown command.");
+    if (u.dead[st]) return R(false, STN_LONG[st] + " destroyed.");
+    if (u.holds && !u.holds[st]) return R(false, "You do not hold " + STN_LONG[st] + ".");
+    const emcon = !ctx.radar.on && !u.dead[1], byId = (list, id) => list.find(k => k.id === id && !k.marker && !k.sunk);
+    switch (cmd.type) {
+      case "set_course": { const v = +cmd.hdg; if (!isFinite(v)) return R(false, "Bad heading."); u.ordHdg = norm(v); return R(true); }
+      case "set_speed": { const v = +cmd.kt; if (!isFinite(v)) return R(false, "Bad speed."); u.ordSpd = v; return R(true); }
+      case "emcon": ctx.radar.on = !cmd.on; if (cmd.on) { u.def.ecm = false; u.link = false; } return R(true); // EMCON on = radar silent; jamming and LINK are emissions, forced off
+      case "link": { const m = toggleLink(u, emcon); return R(!/unavailable|destroyed/i.test(m), m); }
+      case "identify": { const c = byId(ctx.contacts, cmd.id); if (!c || !c.seen) return R(false, "Select a contact."); return R(startIdentify(c)); }
+      case "cancel_identify": { const c = byId(ctx.contacts, cmd.id); if (!c) return R(false); cancelIdentify(c); return R(true); }
+      case "tag": { const c = byId(ctx.contacts, cmd.id); return R(!!c && setTag(c, cmd.cls)); }
+      case "fire": { const c = ctx.contacts.find(k => k.id === cmd.id && k.seen && !k.sunk), why = fireCheck(u, cmd.slot, c); if (why) return R(false, why); return R(startFire(u, cmd.slot, c)); }
+      case "cancel_fire": cancelFire(u); return R(true);
+      case "ecm": { const m = toggleEcm(u, emcon); return R(!/unavailable/.test(m), m); }
+      case "deploy_decoy": { const m = deployDecoy(u, ctx.missiles); return R(/^Decoy deployed/.test(m), m); }
+      case "launch_sam": { const m = launchSam(u, ctx.missiles, cmd.uid); return R(m === "SAM launched.", m); }
+      case "ciws": setCiws(u, cmd.uid == null ? null : cmd.uid); return R(true);
+    }
+  }
+  const api = { command, trkOf, newTrk, toggleLink, newAlly, resetAlly, allyStep, stepUnit, launchMissile, rays, fixStep, aiFixStep, initEnemy, resetEnemy, aiDefStep, aiSamMove, allyDefStep, allySamMove, resetAi, aiIdTime, aiFireStep, newAi, aiStep, ciwsStep, ecmStep, toggleEcm, deployDecoy, launchSam, setCiws, stepDefense, reap, defCheck, CFG, norm, diff, newShip, step, newRadar, newContact, pDetect, radarStep, setTag, stepContact, newEsm, pEsm, esmStep, startIdentify, cancelIdentify, identifyStep, identifyTime, fireCheck, startFire, cancelFire, fireStep, stepMissiles, hitShip, debugMissile, resetShip, STN };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.Sim = api;
 })(typeof self !== "undefined" ? self : this);

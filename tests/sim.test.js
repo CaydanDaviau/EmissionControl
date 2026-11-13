@@ -446,3 +446,29 @@ test("player track table: radar, ESM and identify write ship.trk; contact names 
   Sim.startIdentify(c); run(dt => { Sim.radarStep(radar, ship, [c], dt); Sim.identifyStep([c], dt, true, ship); }, 40);
   assert.ok(r.identified && r.cls === "host" && c.cls === "host", "identify result lands in the record");
 });
+
+test("command layer: validator (unknown, destroyed station, crew holds) and navigation/EMCON commands", () => {
+  const ship = Sim.newShip(), radar = Sim.newRadar(1), ctx = { radar, contacts: [], missiles: [] }, cmd = o => Sim.command(ship, o, ctx);
+  assert.equal(cmd({ type: "nope" }).ok, false); assert.equal(cmd({ type: "set_course", hdg: 370 }).ok, true); assert.equal(ship.ordHdg, 10);
+  assert.equal(cmd({ type: "set_course", hdg: "x" }).ok, false); assert.equal(cmd({ type: "set_speed", kt: 15 }).ok, true); assert.equal(ship.ordSpd, 15);
+  ship.def.ecm = true; ship.link = true; assert.equal(cmd({ type: "emcon", on: true }).ok, true);
+  assert.equal(radar.on, false); assert.equal(ship.def.ecm, false); assert.equal(ship.link, false, "EMCON forces jamming and LINK off");
+  assert.equal(cmd({ type: "link" }).ok, false, "LINK refused under EMCON"); assert.equal(cmd({ type: "ecm" }).ok, false);
+  cmd({ type: "emcon", on: false }); assert.equal(radar.on, true);
+  ship.holds = [false, true, true, true]; const r = cmd({ type: "set_speed", kt: 30 }); assert.equal(r.ok, false); assert.match(r.msg, /do not hold NAVIGATION/); assert.equal(ship.ordSpd, 15);
+  ship.holds = null; ship.dead[0] = true; assert.match(cmd({ type: "set_course", hdg: 90 }).msg, /NAVIGATION destroyed/); assert.equal(ship.ordHdg, 10);
+});
+
+test("command layer: identify, tag, fire, defense commands reach the same sim code", () => {
+  const ship = Sim.newShip(), radar = Sim.newRadar(5), c = Object.assign(mk(0, 8, { side: "enemy" }), { id: 7 }), missiles = [], ctx = { radar, contacts: [c], missiles }, cmd = o => Sim.command(ship, o, ctx);
+  assert.equal(cmd({ type: "identify", id: 7 }).ok, false, "not seen yet");
+  run(dt => Sim.radarStep(radar, ship, [c], dt), 60);
+  assert.equal(cmd({ type: "tag", id: 7, cls: "host" }).ok, true); assert.equal(c.cls, "host");
+  assert.equal(cmd({ type: "identify", id: 7 }).ok, true); assert.equal(c.idActive, true);
+  assert.equal(cmd({ type: "cancel_identify", id: 7 }).ok, true); assert.equal(c.idActive, false);
+  assert.match(cmd({ type: "fire", slot: null, id: 7 }).msg, /Select a weapon/);
+  assert.equal(cmd({ type: "fire", slot: 0, id: 7 }).ok, true); assert.ok(ship.fire); assert.equal(cmd({ type: "cancel_fire" }).ok, true); assert.equal(ship.fire, null);
+  assert.equal(cmd({ type: "launch_sam", uid: 99 }).ok, false); assert.equal(cmd({ type: "ciws", uid: 5 }).ok, true); assert.equal(ship.def.ciws, 5);
+  assert.equal(cmd({ type: "deploy_decoy" }).ok, true, "decoy deployed even with nothing near"); assert.equal(ship.def.decoy, Sim.CFG.DEFENSE.DECOY.AMMO - 1);
+  ship.dead[2] = true; assert.match(cmd({ type: "fire", slot: 0, id: 7 }).msg, /WEAPONS destroyed/);
+});

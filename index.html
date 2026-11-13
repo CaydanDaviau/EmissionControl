@@ -419,8 +419,9 @@ function sensUi(){
     return `<div class="esmr">E${c.esmNo}  ${c.emit.name}  BRG ${pad3(c.esm.brg)}\u00b1${Sim.CFG.ESM.SIGMA}${near?"  = TRK "+String(c.id).padStart(4,"0"):""}<div class="d">heard ${Math.round(esm.t-c.esm.t)}s ago</div></div>`;
   }).join(""):'<div class="note">No emitters heard.</div>';
 }
-$("linkB").onclick=()=>{ linkMsg=Sim.toggleLink(ship,emcon())||""; sensUi(); };
-$("emconB").onclick=()=>{ radar.on=!radar.on; if(!radar.on){ ship.def.ecm=false; ship.link=false; } sensUi(); }; // EMCON forces jamming off
+const cmdr=o=>Sim.command(ship,o,{radar,contacts:all(),missiles}); // every player action goes through the command layer
+$("linkB").onclick=()=>{ linkMsg=cmdr({type:"link"}).msg; sensUi(); };
+$("emconB").onclick=()=>{ cmdr({type:"emcon",on:radar.on}); sensUi(); }; // EMCON forces jamming and LINK off
 const emcon=()=>!radar.on&&!ship.dead[1]; // radar silent by choice (a destroyed SENSORS station is not EMCON)
 // ---- identify (SENSORS tab) ----
 const IDN={unk:"NEUTRAL",ally:"ALLY",host:"HOSTILE"};
@@ -446,7 +447,7 @@ function identPanel(){
 $("idList").addEventListener("pointerdown",e=>{ const r=e.target.closest(".idr"); if(!r) return;
   const id=+r.dataset.id; S.sel=S.sel===id?null:id; identList(); identPanel(); fillTable(); });
 $("idB").onclick=()=>{ const c=contacts.find(k=>k.id===S.sel&&k.seen&&!k.sunk); if(!c) return;
-  if(c.idActive) Sim.cancelIdentify(c); else Sim.startIdentify(c); identPanel(); identList(); };
+  cmdr(c.idActive?{type:"cancel_identify",id:c.id}:{type:"identify",id:c.id}); identPanel(); identList(); };
 const TAGN={unk:"UNK",ally:"ALLY",host:"HOST"};
 function fillTable(){
   const range=RANGES[S.ri], list=contacts.filter(c=>c.seen&&!c.sunk&&rng(c)<=range).sort((a,b)=>a.id-b.id);
@@ -467,7 +468,7 @@ function selPanel(){
   document.querySelectorAll(".tags button").forEach(b=>{ b.disabled=!(c&&c.tracked&&!c.identified); b.classList.toggle("on",!!c&&c.tracked&&c.cls===b.dataset.t); });
 }
 document.querySelectorAll(".tags button").forEach(b=>b.onclick=()=>{
-  const c=contacts.find(k=>k.id===S.sel); if(c&&Sim.setTag(c,b.dataset.t)) fillTable(); });
+  if(cmdr({type:"tag",id:S.sel,cls:b.dataset.t}).ok) fillTable(); });
 
 // ---- weapons (WEAPONS tab): select target, select weapon, FIRE (5 s countdown) ----
 const wh={t:"",w:"",m:""};
@@ -501,7 +502,7 @@ $("wtList").addEventListener("pointerdown",e=>{ const r=e.target.closest(".idr")
 $("wList").addEventListener("pointerdown",e=>{ const r=e.target.closest(".wr"); if(!r) return;
   const i=+r.dataset.i; S.ws=S.ws===i?null:i; wpnRefresh(); });
 $("fireB").onclick=()=>{ const c=all().find(k=>k.id===S.sel&&k.seen&&!k.sunk);
-  if(ship.fire) Sim.cancelFire(ship); else Sim.startFire(ship,S.ws,c); wpnPanel(); };
+  cmdr(ship.fire?{type:"cancel_fire"}:{type:"fire",slot:S.ws,id:S.sel}); wpnPanel(); };
 
 // ---- defense (DEFENSE tab): incoming list, SAM, CIWS target, decoys ----
 const dh={m:""};
@@ -527,21 +528,21 @@ function defPanel(){
   $("decNote").textContent="Decoys "+df.decoy+" \u00b7 range "+D.DECOY.RANGE+" NM"; $("defMsg").textContent=defMsg;
 }
 $("dmList").addEventListener("pointerdown",e=>{ const r=e.target.closest(".idr"); if(!r) return; const u=+r.dataset.u; msel=msel===u?null:u; defList(); defPanel(); });
-$("samB").onclick=()=>{ defMsg=Sim.launchSam(ship,missiles,msel); defList(); defPanel(); };
-$("ciwsB").onclick=()=>{ Sim.setCiws(ship,msel); defList(); defPanel(); };
-$("ciwsA").onclick=()=>{ Sim.setCiws(ship,null); defList(); defPanel(); };
-$("ecmB").onclick=()=>{ defMsg=Sim.toggleEcm(ship,emcon()); defPanel(); };
-$("decB").onclick=()=>{ defMsg=Sim.deployDecoy(ship,missiles); defList(); defPanel(); };
+$("samB").onclick=()=>{ defMsg=cmdr({type:"launch_sam",uid:msel}).msg; defList(); defPanel(); };
+$("ciwsB").onclick=()=>{ cmdr({type:"ciws",uid:msel}); defList(); defPanel(); };
+$("ciwsA").onclick=()=>{ cmdr({type:"ciws",uid:null}); defList(); defPanel(); };
+$("ecmB").onclick=()=>{ defMsg=cmdr({type:"ecm"}).msg; defPanel(); };
+$("decB").onclick=()=>{ defMsg=cmdr({type:"deploy_decoy"}).msg; defList(); defPanel(); };
 
 // ---- controls ----
 $("tHead").onclick=()=>{ $("tList").classList.toggle("open"); fillTable(); };
-const setSpd=v=>{ if(!ship.dead[0]) ship.ordSpd=v; }; // destroyed NAVIGATION: no orders
+const setSpd=v=>{ cmdr({type:"set_speed",kt:v}); }; // destroyed NAVIGATION: the command layer refuses
 $("sRev").onclick=()=>setSpd(Sim.CFG.REVERSE);
 $("sStop").onclick=()=>setSpd(0);
 $("sCru").onclick=()=>setSpd(Sim.CFG.CRUISE);
 $("sFlk").onclick=()=>setSpd(Sim.CFG.FLANK);
 
-function setOrdHdg(v){ if(ship.dead[0]) return; ship.ordHdg=Sim.norm(v); $("hdgIn").value=pad3(ship.ordHdg); }
+function setOrdHdg(v){ cmdr({type:"set_course",hdg:v}); $("hdgIn").value=pad3(ship.ordHdg); }
 function holdBtn(el,fn){
   let t=0,i=0; const stop=()=>{clearTimeout(t);clearInterval(i);};
   el.addEventListener("pointerdown",e=>{ e.preventDefault(); stop(); fn(); t=setTimeout(()=>{i=setInterval(fn,60);},400); });
@@ -551,7 +552,7 @@ function holdBtn(el,fn){
 holdBtn($("hL"),()=>setOrdHdg(ship.ordHdg-1));
 holdBtn($("hR"),()=>setOrdHdg(ship.ordHdg+1));
 const hin=$("hdgIn");
-function commitHdg(){ const v=parseInt(hin.value,10); if(!isNaN(v)&&!ship.dead[0]) ship.ordHdg=Sim.norm(v); hin.value=pad3(ship.ordHdg); }
+function commitHdg(){ const v=parseInt(hin.value,10); if(!isNaN(v)) cmdr({type:"set_course",hdg:v}); hin.value=pad3(ship.ordHdg); }
 hin.addEventListener("focus",()=>hin.select());
 hin.addEventListener("input",()=>{ hin.value=hin.value.replace(/\D/g,""); if(hin.value.length===3){ commitHdg(); hin.blur(); } });
 hin.addEventListener("keydown",e=>{ if(e.key==="Enter"){ commitHdg(); hin.blur(); } });
