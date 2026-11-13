@@ -210,10 +210,19 @@ tr.sel{background:#2a2f33}
     </div>
   </div>
 </div>
-<div class="ov show" id="menu"><h1>EMCON</h1><button id="startB">START</button><button id="setB">&#9881; SETTINGS</button><div class="stnrow" id="stnRow"><button data-i="0"></button><button data-i="1"></button><button data-i="2"></button><button data-i="3"></button></div><button id="dbgR" class="dbg">DEBUG: REPAIR / RESET</button></div>
+<div class="ov show" id="menu"><h1>EMCON</h1><button id="startB">START</button><button id="setB">&#9881; SETTINGS</button><button id="mpB">MULTIPLAYER</button><div class="stnrow" id="stnRow"><button data-i="0"></button><button data-i="1"></button><button data-i="2"></button><button data-i="3"></button></div><button id="dbgR" class="dbg">DEBUG: REPAIR / RESET</button></div>
 
+<div class="ov" id="mp"><h1>MULTIPLAYER</h1>
+<input id="mpName" maxlength="16" placeholder="Your name" style="width:220px;padding:10px;background:#0c0d0e;color:#ddd;border:1px solid var(--dim)">
+<button id="mpHost">HOST ROOM</button>
+<div class="stnrow"><input id="mpCode" maxlength="6" placeholder="CODE" style="flex:1;min-width:0;padding:9px;background:#0c0d0e;color:#ddd;border:1px solid var(--dim);text-transform:uppercase"><button id="mpJoin" style="flex:1">JOIN</button></div>
+<button id="mpList">ROOM LIST</button>
+<div id="mpRooms" style="width:220px;font-size:12px;color:var(--dim)"></div>
+<div id="mpLog" style="width:220px;font-size:12px;min-height:60px;white-space:pre-wrap"></div>
+<button id="mpPing" style="display:none">PING</button><button id="mpBack">BACK</button></div>
 <div class="ov" id="settings"><h1>SETTINGS</h1><div class="row"><span class="lbl">Radar sweep</span><button id="sweepB" style="width:100px">On</button></div><button id="backB">BACK</button></div>
 <script src="sim.js"></script>
+<script src="net.js"></script>
 <script>
 "use strict";
 const $=id=>document.getElementById(id);
@@ -584,6 +593,15 @@ function showMenu(on){ S.paused=on; $("menu").classList.toggle("show",on); }
 function sweepUi(){ $("sweepB").textContent=sweepOn?"On":"Off"; $("sweepB").classList.toggle("off",!sweepOn); }
 $("startB").onclick=()=>{ $("startB").textContent="RESUME"; showMenu(false); };
 $("menuB").onclick=()=>showMenu(true);
+let mpS=null; const mpLog=s=>{ $("mpLog").textContent=s; };
+const mpH={ onStatus:mpLog, onPeer:(id,n,s)=>{ mpLog((mpS&&mpS.role==="host"?"Room "+mpS.code+"\n":"")+id+(n?" ("+n+")":"")+": "+s); if(s==="open") $("mpPing").style.display=""; }, onRtt:(id,ms)=>mpLog("Ping "+id+": "+ms+" ms"), onEnd:r=>{ mpLog("Disconnected: "+r); mpS=null; $("mpPing").style.display="none"; } };
+const mpName=()=>$("mpName").value.trim()||"Player";
+$("mpB").onclick=()=>{ $("menu").classList.remove("show"); $("mp").classList.add("show"); };
+$("mpBack").onclick=()=>{ if(mpS){ mpS.close(); mpS=null; } $("mpPing").style.display="none"; $("mp").classList.remove("show"); $("menu").classList.add("show"); };
+$("mpHost").onclick=async()=>{ if(mpS) mpS.close(); mpLog("Creating room..."); try{ mpS=await Net.host({name:mpName()+"'s room",player:mpName(),public:true,max:4},mpH); mpLog("Room code: "+mpS.code+"\nWaiting for players..."); }catch(e){ mpLog("Error: "+e.message); } };
+$("mpJoin").onclick=async()=>{ if(mpS) mpS.close(); mpLog("Joining..."); try{ mpS=await Net.join($("mpCode").value,mpName(),mpH); mpLog("In room "+mpS.code+"\nConnecting to host..."); }catch(e){ mpLog("Error: "+e.message); } };
+$("mpPing").onclick=()=>{ if(!mpS) return; if(mpS.role==="guest") mpS.ping("host"); else Object.keys(mpS.dcs).forEach(id=>mpS.ping(id)); };
+$("mpList").onclick=async()=>{ const el=$("mpRooms"); el.textContent="Loading..."; try{ const l=await Net.list(); el.innerHTML=l.length?"":"No public rooms."; l.forEach(r=>{ const b=document.createElement("div"); b.textContent=r.code+"  "+r.name+"  "+r.players+"/"+r.max; b.style.cssText="padding:6px 0;cursor:pointer;color:#ddd"; b.onclick=()=>{ $("mpCode").value=r.code; }; el.appendChild(b); }); }catch(e){ el.textContent="Error: "+e.message; } };
 $("setB").onclick=()=>{ $("menu").classList.remove("show"); $("settings").classList.add("show"); };
 $("backB").onclick=()=>{ $("settings").classList.remove("show"); $("menu").classList.add("show"); };
 $("sweepB").onclick=()=>{ sweepOn=!sweepOn; try{localStorage.setItem("emcon.sweep",sweepOn?"1":"0");}catch(e){} sweepUi(); };

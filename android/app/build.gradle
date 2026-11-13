@@ -6,7 +6,7 @@ plugins {
 def webAssets = layout.buildDirectory.dir("generated/webassets")
 tasks.register('copyWeb', Copy) {
     from(rootProject.projectDir.parentFile) {
-        include 'index.html', 'sim.js'
+        include 'index.html', 'sim.js', 'net.js'
     }
     into webAssets
 }
