@@ -1,0 +1,56 @@
+plugins {
+    id 'com.android.application'
+}
+
+// The web UI + sim live in the repo root (index.html, sim.js); copy them into the APK assets at build time.
+def webAssets = layout.buildDirectory.dir("generated/webassets")
+tasks.register('copyWeb', Copy) {
+    from(rootProject.projectDir.parentFile) {
+        include 'index.html', 'sim.js'
+    }
+    into webAssets
+}
+
+android {
+    namespace 'com.emissioncontrol.caydan'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.emissioncontrol.caydan'
+        minSdk 26
+        targetSdk 34
+        versionCode 1
+        versionName '0.1'
+    }
+
+    sourceSets {
+        main.assets.srcDirs += webAssets
+    }
+
+    // Release signing comes from environment variables set by the CI workflow (from GitHub Secrets). Never commit a keystore.
+    def ks = System.getenv('KEYSTORE_FILE')
+    if (ks) {
+        signingConfigs {
+            release {
+                storeFile file(ks)
+                storePassword System.getenv('KEYSTORE_PASSWORD')
+                keyAlias System.getenv('KEY_ALIAS')
+                keyPassword System.getenv('KEY_PASSWORD')
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            if (ks) signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+tasks.matching { it.name == 'preBuild' }.configureEach { dependsOn 'copyWeb' }
