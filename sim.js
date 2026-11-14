@@ -221,9 +221,9 @@
   function cancelFire(ship) { if (ship.fire) { ship.fire = null; ship.fireMsg = "Launch aborted."; } }
   function launchMissile(u, w, o, missiles, ship) { // the one place a missile entity is made, for the human ship and AI units alike. o = {tid, hdg?, tx?, ty?}; counters live on the player ship
     const W = CFG.WEAPONS[w], L = slotOf(u, w); L.ammo--;
-    const human = u.ctl === "human", red = !human && u.team !== ship.team, n = human ? ++ship.nMsl : red ? ++ship.nEnemy : ++ship.nAlly;
-    const m = { uid: ++ship.uid, n, side: human ? "own" : red ? "enemy" : "ally", team: u.team, from: keyOf(u), w, tid: o.tid, x: u.x, y: u.y, hdg: o.hdg !== undefined ? o.hdg : u.hdg, spd: W.speed, fuel: W.range };
-    if (!human) m.lbl = (red ? "H" : "A") + n;
+    const own = u === ship, red = !own && u.team !== ship.team, n = own ? ++ship.nMsl : red ? ++ship.nEnemy : ++ship.nAlly; // side is relative to the reference (local) ship: own / ally / enemy
+    const m = { uid: ++ship.uid, n, side: own ? "own" : red ? "enemy" : "ally", team: u.team, from: keyOf(u), w, tid: o.tid, x: u.x, y: u.y, hdg: o.hdg !== undefined ? o.hdg : u.hdg, spd: W.speed, fuel: W.range };
+    if (!own) m.lbl = (red ? "H" : "A") + n;
     if (o.tx !== undefined) { m.tx = o.tx; m.ty = o.ty; } // fixed aim point (FIX marker): flies there, its seeker looks for a ship
     missiles.push(m); return m;
   }
@@ -235,7 +235,7 @@
     const L = ship.loadout[f.slot], human = ship.ctl === "human";
     ship.fire = null; ship.fireMsg = "";
     // human at a contact: guided to the live track. FIX marker: a fixed point. AI units always fly to the last known position (tx/ty); the seeker finds the real ship only within its radius
-    const o = c.marker ? (human ? { tid: "mk", tx: c.px, ty: c.py } : { tid: "own", tx: c.px, ty: c.py }) : human ? { tid: c.id } : { tid: c.id, tx: c.px, ty: c.py };
+    const o = c.marker ? (human ? { tid: "mk", tx: c.px, ty: c.py } : { tid: "mk", tx: c.px, ty: c.py }) : human ? { tid: c.id } : { tid: c.id, tx: c.px, ty: c.py };
     if (!human) o.hdg = norm(Math.atan2(c.px - ship.x, c.py - ship.y) * 180 / Math.PI);
     const m = launchMissile(ship, L.w, o, missiles, pship || ship);
     if (c.ai && !c.sunk) aiProvoke(c, pship || ship);
@@ -281,11 +281,14 @@
       const dx = tr.x - m.x, dy = tr.y - m.y;
       if (Math.hypot(dx, dy) < CFG.WEAPON.ARRIVE) {
         const lbl = m.lbl || (humanShot ? "M" : m.side === "enemy" ? "H" : "A") + m.n, shooter = isHum(S) ? S : ship;
-        if (fixed || (humanShot && T && T.dead)) { // human shot reaches its aim point (last known position / FIX): hits only a ship really within the seeker radius
+        if ((fixed && humanShot) || (humanShot && T && T.dead)) { // human shot reaches its aim point (last known position / FIX): hits only a ship really within the seeker radius
           const dd = k => Math.hypot(k.x - m.x, k.y - m.y), team = (S || ship || {}).team;
           const v = fixed ? units.filter(k => k.dead && !k.sunk && k.team !== team && dd(k) <= W.seeker).sort((a, b) => dd(a) - dd(b))[0] : (dd(T) <= W.seeker ? T : null);
           const r = v ? hitShip(v, W.dmg) : null; shooter.strikeSeq = (shooter.strikeSeq || 0) + 1;
           shooter.strikeMsg = lbl + " > " + (fixed ? "FIX" : "TRK " + pad(T)) + res(r); }
+        else if (!humanShot && fixed) { // AI shot at a FIX point: hits the nearest foe ship within the seeker, if any (nothing otherwise)
+          const dd = k => Math.hypot(k.x - m.x, k.y - m.y), team = (S || {}).team, v = units.filter(k => k.dead && !k.sunk && k.team !== team && dd(k) <= W.seeker).sort((a, b) => dd(a) - dd(b))[0];
+          if (v) { const r = hitShip(v, W.dmg); if (isHum(v)) { v.hitSeq = (v.hitSeq || 0) + 1; v.hitMsg = lbl + res(r); } else if (v.team === ship.team) { ship.hitSeq++; ship.hitMsg = lbl + " > " + keyOf(v) + res(r); } else { ship.strikeSeq = (ship.strikeSeq || 0) + 1; ship.strikeMsg = lbl + " > TRK " + pad(v) + res(r); } } }
         else if (!humanShot && T && T.dead) { // AI shot reaches its target (a miss if the seeker never found it)
           const r = m.tx !== undefined ? { hit: false } : hitShip(T, W.dmg);
           if (isHum(T)) { T.hitSeq = (T.hitSeq || 0) + 1; T.hitMsg = lbl + res(r); }
@@ -452,7 +455,7 @@
   }
   // ---- world: one list of units drives the whole match (humans and AI alike) ----
   // newWorld(match) -> { units, missiles, ref }; ref = the reference human ship (carries the missile counters/uids and banners for non-human targets).
-  const newWorld = (match, missiles) => { const units = match.units, ref = units.find(isShip) || units[0]; return { units, missiles: missiles || [], ref }; };
+  const newWorld = (match, missiles, refUnit) => { const units = match.units, ref = refUnit || units.find(isShip) || units[0]; return { units, missiles: missiles || [], ref }; };
   // stepWorld(W, rdt, sdt): real dt for sensors/AI/defense rolls, scaled dt for motion (same split as the old frame()). Every unit is stepped; AI units run the AI, human units run the same sensor/defense drivers as the player ship. Not done here: FIX markers and LINK sharing.
   function stepWorld(W, rdt, sdt) {
     const U = W.units, M = W.missiles, ref = W.ref, rest = U.filter(u => u !== ref), foesOfU = u => U.filter(f => f !== u && f.team !== u.team);
@@ -620,7 +623,7 @@
     const ms = [];
     for (const m of missiles) { const atMe = m.tid === me, mine = m.team ? m.team === v.team : (m.side === "enemy") === (v.team === "red"); // m.team = the shooter's team (m.side stays relative to the local ship for the host UI)
       if (!(mine || atMe || Math.hypot(m.x - v.x, m.y - v.y) <= CFG.RADAR.HORIZON)) continue;
-      ms.push({ uid: m.uid, n: m.n, lbl: m.lbl || null, side: m.side, w: m.w, x: r1(m.x), y: r1(m.y), hdg: r1(m.hdg), spd: m.spd, state: m.state || null, atMe, tid: mine ? m.tid : null, tx: mine && m.tx !== undefined ? r1(m.tx) : null, ty: mine && m.ty !== undefined ? r1(m.ty) : null }); }
+      ms.push({ uid: m.uid, n: m.n, lbl: m.lbl || null, side: m.from === undefined ? m.side : m.from === me ? "own" : mine ? "ally" : "enemy", w: m.w, x: r1(m.x), y: r1(m.y), hdg: r1(m.hdg), spd: m.spd, state: m.state || null, atMe, tid: mine ? m.tid : null, tx: mine && m.tx !== undefined ? r1(m.tx) : null, ty: mine && m.ty !== undefined ? r1(m.ty) : null }); }
     const friends = [], sams = [];
     for (const u of units) { if (u === v) continue; const mine = u.team === v.team;
       if (mine) friends.push({ id: keyOf(u), x: r1(u.x), y: r1(u.y), hdg: r1(u.hdg), spd: r1(u.spd || 0), sunk: !!u.sunk, wreck: !!u.wreck });
@@ -644,10 +647,11 @@
       inbox.last[pid] = seq; // consumed even if refused, so a retransmit of a refused command is not retried
       const u = unitOf(pid); if (!u) { bad("No unit."); continue; }
       if (typeof msg.type !== "string") { bad("Bad command message."); continue; }
-      const r = command(u, Object.assign({}, msg.args && typeof msg.args === "object" ? msg.args : {}, { type: msg.type }), Object.assign({}, ctx, { pid }));
+      const r = command(u, Object.assign({}, msg.args && typeof msg.args === "object" ? msg.args : {}, { type: msg.type }), Object.assign({}, typeof ctx === "function" ? ctx(u) : ctx, { pid }));
       out.push({ pid, reply: r.ok ? (r.msg ? { t: "ack", seq, msg: r.msg } : { t: "ack", seq }) : { t: "err", seq, msg: r.msg || "Refused." } }); } // ack may carry the command's message (e.g. LINK / SAM / decoy result)
     return out;
   }
-  const api = { teamLinkStep, newWorld, stepWorld, buildMatch, offlineScenario, newInbox, enqueue, drain, dropPlayer, seatsOf, viewFor, linkShare, command, trkOf, reloadStep, newTrk, toggleLink, newAlly, resetAlly, allyStep, stepUnit, launchMissile, rays, fixStep, aiFixStep, initEnemy, resetEnemy, aiDefStep, aiSamMove, allyDefStep, allySamMove, resetAi, aiIdTime, aiFireStep, newAi, aiStep, ciwsStep, ecmStep, toggleEcm, deployDecoy, launchSam, setCiws, stepDefense, reap, defCheck, CFG, norm, diff, newShip, step, newRadar, newContact, pDetect, radarStep, setTag, stepContact, newEsm, pEsm, esmStep, startIdentify, cancelIdentify, identifyStep, identifyTime, fireCheck, startFire, cancelFire, fireStep, stepMissiles, hitShip, debugMissile, resetShip, STN };
+  const unitOf = (W, pid) => W.units.find(u => u.pids && u.pids.includes(pid)) || null; // the unit a connected player crews (null = spectator / unknown)
+  const api = { teamLinkStep, newWorld, stepWorld, buildMatch, offlineScenario, newInbox, enqueue, drain, unitOf, dropPlayer, seatsOf, viewFor, linkShare, command, trkOf, reloadStep, newTrk, toggleLink, newAlly, resetAlly, allyStep, stepUnit, launchMissile, rays, fixStep, aiFixStep, initEnemy, resetEnemy, aiDefStep, aiSamMove, allyDefStep, allySamMove, resetAi, aiIdTime, aiFireStep, newAi, aiStep, ciwsStep, ecmStep, toggleEcm, deployDecoy, launchSam, setCiws, stepDefense, reap, defCheck, CFG, norm, diff, newShip, step, newRadar, newContact, pDetect, radarStep, setTag, stepContact, newEsm, pEsm, esmStep, startIdentify, cancelIdentify, identifyStep, identifyTime, fireCheck, startFire, cancelFire, fireStep, stepMissiles, hitShip, debugMissile, resetShip, STN };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.Sim = api;
 })(typeof self !== "undefined" ? self : this);

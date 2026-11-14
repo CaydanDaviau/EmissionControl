@@ -816,3 +816,20 @@ test("AI patrol: first waypoint is straight ahead, not sideways", () => {
   const room = require("../lobby.js").newRoom({ name: "R", mode: "solo", max: 4 }, "host", "H"), m = Sim.buildMatch(room, 1), c = m.units.find(u => u.ctl === "ai"), w0 = c.ai.wp[0];
   assert.equal(w0[0], c.x); assert.ok(Math.abs(w0[1] - c.y) > 10);
 });
+test("two human ships (host a1 vs guest b1): per-unit commands, viewer-relative missile sides, AI FIX shot hits the nearest foe", () => {
+  const L = require("../lobby.js"), r = L.newRoom({ name: "R", mode: "solo", max: 4 }, "host", "H"); L.add(r, "g1", "G"); L.move(r, "host", "A"); L.move(r, "g1", "B");
+  const M = Sim.buildMatch(r, 5), W = Sim.newWorld(M, [], Sim.unitOf({ units: M.units }, "host")), a1 = Sim.unitOf(W, "host"), b1 = Sim.unitOf(W, "g1");
+  assert.equal(W.ref, a1); assert.ok(a1 !== b1 && a1.team !== b1.team); assert.equal(Sim.unitOf(W, "nobody"), null);
+  const inbox = Sim.newInbox(); Sim.enqueue(inbox, "g1", { t: "cmd", seq: 1, type: "set_speed", args: { kt: 30 } });
+  const rep = Sim.drain(inbox, pid => Sim.unitOf(W, pid), u => ({ radar: u.radar, contacts: W.units.filter(f => f.team !== u.team).concat(u.fixes || []), missiles: W.missiles }));
+  assert.equal(rep[0].reply.t, "ack"); assert.equal(b1.ordSpd, 30); assert.notEqual(a1.ordSpd, 30);
+  // a guest's missile is "ally"/"enemy" for the host, "own" for the guest
+  b1.x = 0; b1.y = 10; a1.x = 0; a1.y = 0; const m = Sim.launchMissile(b1, "ssm", { tid: a1.id }, W.missiles, a1);
+  assert.equal(m.side, "enemy"); assert.equal(Sim.viewFor(W.units, W.missiles, b1, "g1").missiles.find(k => k.uid === m.uid).side, "own");
+  assert.equal(Sim.viewFor(W.units, W.missiles, a1, "host").missiles.find(k => k.uid === m.uid).side, "enemy");
+  // AI shot at a FIX point: lands on the nearest foe within the seeker and gives that human the banner
+  W.missiles.length = 0; const ai = W.units.find(u => u.ctl === "ai" && u.team === b1.team); a1.dead = [false, false, false, false]; Sim.CFG.DAMAGE.P_HIT = 1;
+  W.missiles.push({ uid: 99, n: 1, lbl: "H1", side: "enemy", team: b1.team, from: ai.id, w: "ssm", tid: "mk", tx: a1.x, ty: a1.y, x: a1.x, y: a1.y + 0.1, hdg: 180, spd: 480, fuel: 99 });
+  Sim.stepMissiles(W.missiles, W.units.filter(u => u !== a1), 1, a1, null, []); Sim.CFG.DAMAGE.P_HIT = 0.9;
+  assert.ok(a1.hitSeq >= 1 && /^H1/.test(a1.hitMsg), a1.hitMsg); assert.equal(W.missiles.length, 0);
+});
