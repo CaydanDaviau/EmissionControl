@@ -691,3 +691,31 @@ test("lobby: players join in spectators, host moves them, solo team cap = half t
   L.remove(r, "g1"); assert.equal(L.find(r, "g1"), undefined); assert.equal(L.view(r, "g3").you, "g3");
   assert.equal(L.cap(L.newRoom({ mode: "crew", max: 16 }, "h", "H")), Infinity);
 });
+
+test("lobby crew mode: ships, assign, captain defaults/reassign, roles, ready, permissions, auto roles", () => {
+  const L = require("../lobby.js"), r = L.newRoom({ name: "R", mode: "crew", max: 16 }, "host", "H");
+  for (const [id, n] of [["g1", "A"], ["g2", "B"], ["g3", "C"], ["g4", "D"], ["g5", "E"]]) L.add(r, id, n);
+  assert.equal(r.ships.A.length, 1); assert.equal(L.act(r, "g1", { a: "ships", team: "A", n: 2 }).ok, false, "host only");
+  assert.ok(L.act(r, "host", { a: "ships", team: "A", n: 2 }).ok); assert.equal(r.ships.A.length, 2);
+  for (const id of ["g1", "g2", "g3", "g4"]) assert.ok(L.act(r, "host", { a: "assign", id, team: "A", ship: 0 }).ok);
+  assert.equal(L.act(r, "host", { a: "assign", id: "g5", team: "A", ship: 0 }).msg, "Ship is full.");
+  assert.equal(r.ships.A[0].cap, "g1", "first player is captain"); assert.ok(L.act(r, "host", { a: "captain", team: "A", ship: 0, id: "g3" }).ok); assert.equal(r.ships.A[0].cap, "g3");
+  assert.equal(L.act(r, "host", { a: "captain", team: "A", ship: 0, id: "g5" }).ok, false);
+  assert.equal(L.act(r, "g1", { a: "type", team: "A", ship: 0, type: "ddg51" }).ok, false, "only the captain");
+  assert.ok(L.act(r, "g3", { a: "role", team: "A", ship: 0, stn: 2, id: "g4" }).ok); assert.equal(r.ships.A[0].roles[2], "g4");
+  assert.equal(L.act(r, "g3", { a: "role", team: "A", ship: 0, stn: 1, id: "g5" }).ok, false, "not a member");
+  assert.ok(L.act(r, "g3", { a: "ready", team: "A", ship: 0, on: true }).ok); assert.equal(r.ships.A[0].ready, true);
+  assert.ok(L.act(r, "g3", { a: "role", team: "A", ship: 0, stn: 0, id: "g1" }).ok); assert.equal(r.ships.A[0].ready, false, "changes clear ready");
+  assert.equal(L.act(r, "g1", { a: "ready", team: "A", ship: 0, on: true }).ok, false);
+  L.remove(r, "g3"); assert.equal(r.ships.A[0].cap, "g1", "captain leaves -> next member"); L.remove(r, "g4"); assert.equal(r.ships.A[0].roles[2], null, "role of a leaver is cleared");
+  L.autoRoles(r, () => 0.3); assert.ok(r.ships.A[0].roles.every(x => x === "g1" || x === "g2"), "only crew members"); assert.ok(r.ships.A[0].roles.includes("g1") && r.ships.A[0].roles.includes("g2"));
+  assert.ok(L.act(r, "host", { a: "assign", id: "g1", team: "S" }).ok); assert.equal(r.ships.A[0].cap, "g2");
+  assert.ok(L.act(r, "host", { a: "assign", id: "g2", team: "A", ship: 1 }).ok); L.act(r, "host", { a: "ships", team: "A", n: 1 }); assert.equal(L.find(r, "g2").team, "S", "removed ship sends its crew to spectators");
+  assert.equal(L.act(r, "host", { a: "move", id: "g2", to: "A" }).ok, false, "arrows are solo mode only");
+});
+
+test("lobby crew: default captain = first player placed on the ship", () => {
+  const L = require("../lobby.js"), r = L.newRoom({ name: "R", mode: "crew", max: 8 }, "host", "H"); L.add(r, "g1", "A");
+  L.act(r, "host", { a: "assign", id: "g1", team: "B", ship: 0 }); L.act(r, "host", { a: "assign", id: "host", team: "B", ship: 0 });
+  assert.equal(r.ships.B[0].cap, "g1"); assert.deepEqual(L.crewOf(r, "B", 0).map(p => p.id), ["g1", "host"]);
+});
