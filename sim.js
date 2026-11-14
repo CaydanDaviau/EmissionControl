@@ -558,7 +558,7 @@
     for (const k of Object.keys(T)) { const r = T[k], f = byKey[k]; if (k === "_" || !(r.seen || r.esm) || !f || (f.sunk && !isShip(f) && !r.seen)) continue;
       const dx = r.px - v.x, dy = r.py - v.y; // from the last DETECTED position
       tracks.push({ id: k, seen: !!r.seen, esmNo: r.esmNo, tracked: r.tracked, q: r1(r.q), brg: r1(norm(Math.atan2(dx, dy) * 180 / Math.PI)), rng: r1(Math.hypot(dx, dy)), px: r1(r.px), py: r1(r.py), cls: r.cls, identified: r.identified, idActive: r.idActive, idProg: r1(r.idProg), idNote: r.idNote, esm: r.esm ? { brg: r1(r.esm.brg), t: r.esm.t } : null,
-        sunk: !!f.sunk, lastHit: r1(r.lastHit), hdg: r.identified ? r1(f.hdg || 0) : null, emit: f.emit ? f.emit.name : null, esmA: FT && FT[k] && FT[k].esm ? { brg: r1(FT[k].esm.brg), t: r1(FT[k].esm.t) } : null }); } // hdg only once identified (the scope draws that line); esmA = the friend's bearing (white line)
+        sunk: !!f.sunk, lastHit: r1(r.lastHit), hdg: r.identified ? r1(f.hdg || 0) : null, emit: f.emit ? f.emit.name : null, idT: r.seen ? r1(identTime(v, f)) : 0, esmA: FT && FT[k] && FT[k].esm ? { brg: r1(FT[k].esm.brg), t: r1(FT[k].esm.t) } : null }); } // hdg only once identified (the scope draws that line); esmA = the friend's bearing (white line)
     const ms = [];
     for (const m of missiles) { const atMe = m.tid === me, mine = (m.side === "enemy") === (v.team === "red"); // m.side is relative to the player ship: own/ally = blue team, enemy = red team
       if (!(mine || atMe || Math.hypot(m.x - v.x, m.y - v.y) <= CFG.RADAR.HORIZON)) continue;
@@ -567,7 +567,7 @@
     for (const u of units) { if (u === v) continue; const mine = u.team === v.team;
       if (mine) friends.push({ id: keyOf(u), x: r1(u.x), y: r1(u.y), hdg: r1(u.hdg), sunk: !!u.sunk, wreck: !!u.wreck });
       for (const q of (u.def && u.def.sams) || []) { if (!mine && Math.hypot(q.x - v.x, q.y - v.y) > CFG.RADAR.HORIZON) continue; sams.push({ x: r1(q.x), y: r1(q.y), hdg: r1(q.hdg || 0), mine }); } }
-    for (const q of v.def.sams || []) sams.push({ x: r1(q.x), y: r1(q.y), hdg: r1(q.hdg || 0), mine: true, own: true });
+    for (const q of v.def.sams || []) sams.push({ x: r1(q.x), y: r1(q.y), hdg: r1(q.hdg || 0), mine: true, own: true, uid: q.uid });
     return { id: me, team: v.team, friends, sams, own: { x: r1(v.x), y: r1(v.y), hdg: r1(v.hdg), spd: r1(v.spd), ordHdg: r1(v.ordHdg || 0), ordSpd: v.ordSpd || 0, dead: v.dead.slice(), sunk: v.sunk, wreck: v.wreck, holds: pid != null ? seatsOf(v, pid) : (v.holds ? v.holds.slice() : [true, true, true, true]), radarOn: !!(v.radar && v.radar.on), ecm: !!v.def.ecm, link: !!v.link,
       loadout: v.loadout.map(l => ({ w: l.w, ammo: l.ammo })), def: { decoy: v.def.decoy, sam: v.def.sam, cd: r1(v.def.cd), samCd: r1(v.def.samCd), ciws: v.def.ciws, ciwsOn: v.def.ciwsOn }, fire: v.fire ? { slot: v.fire.slot, tid: v.fire.tid, t: r1(v.fire.t) } : null, fireMsg: v.fireMsg || "", hitMsg: v.hitMsg || "", hitSeq: v.hitSeq || 0, strikeMsg: v.strikeMsg || "", strikeSeq: v.strikeSeq || 0,
       radar: { ang: r1((v.radar && v.radar.ang) || 0), t: r1((v.radar && v.radar.t) || 0) }, esmT: r1(v.esmS ? v.esmS.t : 0), allyEsmT: fr ? r1(fr.esmS.t) : 0 },
@@ -587,7 +587,7 @@
       const u = unitOf(pid); if (!u) { bad("No unit."); continue; }
       if (typeof msg.type !== "string") { bad("Bad command message."); continue; }
       const r = command(u, Object.assign({}, msg.args && typeof msg.args === "object" ? msg.args : {}, { type: msg.type }), Object.assign({}, ctx, { pid }));
-      out.push({ pid, reply: r.ok ? { t: "ack", seq } : { t: "err", seq, msg: r.msg || "Refused." } }); }
+      out.push({ pid, reply: r.ok ? (r.msg ? { t: "ack", seq, msg: r.msg } : { t: "ack", seq }) : { t: "err", seq, msg: r.msg || "Refused." } }); } // ack may carry the command's message (e.g. LINK / SAM / decoy result)
     return out;
   }
   const api = { newInbox, enqueue, drain, dropPlayer, seatsOf, viewFor, linkShare, command, trkOf, reloadStep, newTrk, toggleLink, newAlly, resetAlly, allyStep, stepUnit, launchMissile, rays, fixStep, aiFixStep, initEnemy, resetEnemy, aiDefStep, aiSamMove, allyDefStep, allySamMove, resetAi, aiIdTime, aiFireStep, newAi, aiStep, ciwsStep, ecmStep, toggleEcm, deployDecoy, launchSam, setCiws, stepDefense, reap, defCheck, CFG, norm, diff, newShip, step, newRadar, newContact, pDetect, radarStep, setTag, stepContact, newEsm, pEsm, esmStep, startIdentify, cancelIdentify, identifyStep, identifyTime, fireCheck, startFire, cancelFire, fireStep, stepMissiles, hitShip, debugMissile, resetShip, STN };

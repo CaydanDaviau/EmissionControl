@@ -259,7 +259,7 @@ const radar=ship.radar, esm=ship.esmS;
 let sweepOn=true; try{ sweepOn=localStorage.getItem("emcon.sweep")!=="0"; }catch(e){}
 const S={paused:true,ri:4,rings:true,labels:true,grid:true,sel:null,hup:false,ts:0,ws:null};
 let blink=0,seenHit=0,seenStrike=0,bannerT=0,msel=null,defMsg=""; // msel = selected incoming missile uid
-let guest=false, gFoeSams=[]; const gHold={hdg:0,spd:0}, gC=new Map(); // guest mode: the sim does not run here, shadow objects are filled from the host view (see applyView)
+let guest=false, gFoeSams=[]; const gHold={hdg:0,spd:0}, gC=new Map(), gPend={}; // guest mode: the sim does not run here, shadow objects are filled from the host view (see applyView)
 const COL={own:"#fff",ally:"#4da3ff",unk:"#ffd83a",host:"#ff4a4a"};
 
 const cv=$("cv"),g=cv.getContext("2d");
@@ -450,7 +450,7 @@ function identList(){
   if(h!==idHtml){ idHtml=h; $("idList").innerHTML=h; }
 }
 function identPanel(){
-  const c=contacts.find(k=>k.id===S.sel&&TK(k).seen&&!k.sunk), T=c?Sim.identifyTime(c,ship):0, b=$("idB");
+  const c=contacts.find(k=>k.id===S.sel&&TK(k).seen&&!k.sunk), T=c?(guest?c.idT:Sim.identifyTime(c,ship)):0, b=$("idB");
   $("idInfo").textContent=c?String(c.id).padStart(4,"0")+"  BRG "+pad3(brg(c))+"  RNG "+rng(c).toFixed(1)+"  "+(TK(c).tracked?"Q "+Math.round(TK(c).q*100)+"%":"LOST"):"No contact selected";
   b.textContent=!c?"IDENTIFY":TK(c).idActive?"CANCEL":TK(c).identified?"IDENTIFIED":"IDENTIFY";
   b.disabled=!c||(!TK(c).idActive&&(TK(c).identified||!TK(c).tracked||!radar.on)); b.classList.toggle("on",!!c&&TK(c).idActive);
@@ -497,7 +497,7 @@ function wpnList(){
     ||'<div class="note" style="padding:6px">No contacts yet.</div>';
   const w=ship.loadout.map((l,i)=>{ const d=Sim.CFG.WEAPONS[l.w];
     return `<div class="wr${S.ws===i?" sel":""}" data-i="${i}"><span>${d.model}</span><span>${d.name}</span><span>${d.range} NM</span><span class="s am">${l.ammo}</span></div>`; }).join("");
-  const m=missiles.filter(k=>k.side==="own").map(k=>{ const c=k.tid==="mk"?{px:k.tx,py:k.ty}:contacts.find(q=>q.id===k.tid), d=Math.hypot(TK(c).px-k.x,TK(c).py-k.y);
+  const m=missiles.filter(k=>k.side==="own").map(k=>{ const c=k.tid==="mk"?{px:k.tx,py:k.ty}:contacts.find(q=>q.id===k.tid); if(!c) return ""; const d=Math.hypot(TK(c).px-k.x,TK(c).py-k.y);
     return `<div class="srow"><span class="n">M${k.n}</span><span>&rarr; ${k.tid==="mk"?"FIX":String(k.tid).padStart(4,"0")}</span><span class="s">${d.toFixed(1)} NM &middot; ETA ${mmss(d/k.spd*3600)}</span></div>`; }).join("")
     ||'<div class="note">None in flight.</div>';
   if(t!==wh.t){ wh.t=t; $("wtList").innerHTML=t; }
@@ -611,29 +611,31 @@ function applyView(v){
   ship.def.sams=v.sams.filter(q=>q.own); ally.def.sams=v.sams.filter(q=>q.mine&&!q.own); gFoeSams=v.sams.filter(q=>!q.mine);
   const seen=new Set(); // tracks -> the ship's track table (the UI reads it through TK); the contact objects are kept between views so their linked names stay valid
   for(const t of v.tracks){ const id=cid(t.id); seen.add(id); let c=gC.get(id); if(!c){ c={id}; gC.set(id,c); }
-    c.hdg=t.hdg||0; c.sunk=t.sunk; c.emit={name:t.emit||"?"}; c.esmA=t.esmA;
+    c.hdg=t.hdg||0; c.idT=t.idT; c.sunk=t.sunk; c.emit={name:t.emit||"?"}; c.esmA=t.esmA;
     Object.assign(Sim.trkOf(ship,c),{seen:t.seen,tracked:t.tracked,q:t.q,px:t.px,py:t.py,lastHit:t.lastHit,cls:t.cls,identified:t.identified,idActive:t.idActive,idProg:t.idProg,idNote:t.idNote,esm:t.esm,esmNo:t.esmNo}); }
   for(const id of [...gC.keys()]) if(!seen.has(id)){ gC.delete(id); delete ship.trk[id]; }
   contacts.length=0; for(const c of [...gC.values()].sort((a,b)=>a.id-b.id)) contacts.push(c);
-  ship.fixes.length=0; for(const f of v.fixes) ship.fixes.push({id:f.id,emId:f.emId,marker:true,seen:true,tracked:false,cls:"unk",px:f.px,py:f.py,t:f.t,esmNo:f.esmNo});
+  ship.fixes.length=0; for(const f of v.fixes) ship.fixes.push({id:f.id,emId:f.emId,marker:true,seen:true,tracked:true,identified:true,cls:"unk",q:1,px:f.px,py:f.py,t:f.t,esmNo:f.esmNo});
   missiles.length=0; for(const m of v.missiles) missiles.push({uid:m.uid,n:m.n,lbl:m.lbl,side:m.side,w:m.w,x:m.x,y:m.y,hdg:m.hdg,spd:m.spd,state:m.state||undefined,tid:m.atMe?"own":m.tid,tx:m.tx===null?undefined:m.tx,ty:m.ty===null?undefined:m.ty});
   if(document.activeElement!==$("hdgIn")) $("hdgIn").value=pad3(ship.ordHdg);
 }
 function guestView(v){
-  const first=!guest; guest=true; applyView(v);
+  const first=!guest; guest=true; if(first){ ship.trk={}; gC.clear(); } // drop the track records of the local game: the shadow contacts get their own
+  applyView(v);
   if(first){ document.body.classList.add("guest"); $("mp").classList.remove("show"); showMenu(false); $("startB").textContent="RESUME"; $("aiDbg").style.display="none"; seenHit=ship.hitSeq; seenStrike=ship.strikeSeq||0; ui(); sensUi(); applyDmg(); }
 }
 function guestCmd(o){ const a=Object.assign({},o), now=performance.now(); delete a.type;
   if(o.type==="set_course"&&isFinite(+o.hdg)){ ship.ordHdg=Sim.norm(+o.hdg); gHold.hdg=now+1200; } else if(o.type==="set_speed"&&isFinite(+o.kt)){ ship.ordSpd=+o.kt; gHold.spd=now+1200; }
-  mpCmd(o.type,a); return {ok:true,msg:""}; }
-function guestErr(msg){ $("banner").style.color="#ffd83a"; $("banner").textContent=msg; bannerT=4; } // the host refused a command (e.g. "You do not hold NAVIGATION.")
+  mpCmd(o.type,a); gPend[mpSeq]=o.type; return {ok:true,msg:""}; }
+function guestAck(m){ const t=gPend[m.seq]; delete gPend[m.seq]; if(!m.msg) return; if(t==="link") ship.linkMsg=m.msg; else if(t==="ecm"||t==="launch_sam"||t==="deploy_decoy") defMsg=m.msg; } // the host's reply text goes to the panel that sent the command
+function guestErr(msg,seq){ guestAck({seq,msg}); $("banner").style.color="#ffd83a"; $("banner").textContent=msg; bannerT=4; } // the host refused a command (e.g. "You do not hold NAVIGATION.")
 
 const mpCmd=(type,args)=>{ if(mpS&&mpS.role==="guest") mpS.send("host",{t:"cmd",seq:++mpSeq,type,args}); };
 setInterval(()=>{ if(!mpS||mpS.role!=="host") return; const r=Sim.drain(mpInbox,()=>ship,mpCtx()); for(const x of r) mpS.send(x.pid,x.reply); },100);
 setInterval(()=>{ if(!mpS||mpS.role!=="host") return; mpTick++; const us=mpUnits(); for(const id of mpOpen) mpS.send(id,{t:"view",tick:mpTick,v:Sim.viewFor(us,missiles,ship,id)}); },500);
 const mpH={ onStatus:mpLog, onPeer:(id,n,s)=>{ if(s==="open"){ mpOpen.add(id); $("mpPing").style.display=""; $("mpLeave").style.display=""; } if(s==="closed"){ mpOpen.delete(id); Sim.dropPlayer(ship,id); }
   mpLog((mpS&&mpS.role==="host"?"Room "+mpS.code+"\nPlayers connected: "+mpOpen.size+"\nPress BACK, then START to run the game.":id+": "+s)); },
-  onMsg:(from,m)=>{ if(mpS&&mpS.role==="host"){ if(m&&m.t==="cmd") Sim.enqueue(mpInbox,from,m); } else if(m.t==="view") guestView(m.v); else if(m.t==="err") guestErr(m.msg); }, onRtt:(id,ms)=>mpLog("Ping "+id+": "+ms+" ms"), onEnd:r=>{ if(guest){ try{ sessionStorage.setItem("emcon.mp","Disconnected: "+r); }catch(e){} location.reload(); return; } mpLog("Disconnected: "+r); mpS=null; mpOpen.clear(); $("mpPing").style.display="none"; $("mpLeave").style.display="none"; } };
+  onMsg:(from,m)=>{ if(mpS&&mpS.role==="host"){ if(m&&m.t==="cmd") Sim.enqueue(mpInbox,from,m); } else if(m.t==="view") guestView(m.v); else if(m.t==="err") guestErr(m.msg,m.seq); else if(m.t==="ack") guestAck(m); }, onRtt:(id,ms)=>mpLog("Ping "+id+": "+ms+" ms"), onEnd:r=>{ if(guest){ try{ sessionStorage.setItem("emcon.mp","Disconnected: "+r); }catch(e){} location.reload(); return; } mpLog("Disconnected: "+r); mpS=null; mpOpen.clear(); $("mpPing").style.display="none"; $("mpLeave").style.display="none"; } };
 const mpName=()=>$("mpName").value.trim()||"Player";
 $("mpB").onclick=()=>{ $("menu").classList.remove("show"); $("mp").classList.add("show"); };
 $("mpBack").onclick=()=>{ $("mp").classList.remove("show"); $("menu").classList.add("show"); };
@@ -670,7 +672,7 @@ function frame(t){
     Sim.allyDefStep(ally,missiles,rdt); // sensors destroyed: radar dead, ESM deaf
     Sim.radarStep(radar,ship,contacts,rdt); if(!ship.dead[1]) Sim.esmStep(esm,ship,contacts,rdt); const lk=ship.link&&!ship.dead[1]&&!ally.dead[1]; for(const c of contacts) c.esmA=lk?(Sim.trkOf(ally,c).esm||null):null; Sim.fixStep(ship.fixes,ship,ally,contacts,esm,ally.esmS,rdt); // the ally's bearings come from its own track records (its own ESM runs inside its AI)
     Sim.aiFixStep(contacts,rdt); Sim.identifyStep(contacts,rdt,radar.on,ship); Sim.fireStep(ship,all(),missiles,rdt); Sim.reap(missiles,rdt); Sim.ecmStep(ship,missiles,rdt); Sim.ciwsStep(ship,missiles,rdt); } // sensors run in real time
-  if(guest){ radar.ang=Sim.norm(radar.ang+360/Sim.CFG.RADAR.PERIOD*rdt); radar.t+=rdt; esm.t+=rdt; ally.esmS.t+=rdt; } // between views the clocks keep running (every view overwrites them with the host's)
+  if(guest){ radar.ang=Sim.norm(radar.ang+360/Sim.CFG.RADAR.PERIOD*rdt); radar.t+=rdt; esm.t+=rdt; ally.esmS.t+=rdt; if(ship.fire) ship.fire.t=Math.max(0,ship.fire.t-rdt); ship.def.cd=Math.max(0,ship.def.cd-rdt); } // between views the clocks keep running (every view overwrites them with the host's)
   blink=Math.floor(t/300)%2; S.lock=!ship.wreck&&missiles.some(m=>m.tid==="own"&&!m.state); // enemy missile aimed at us
   $("top").style.borderBottom=S.lock?"4px solid "+(blink?"#fff":"#ff3b3b"):"";
   if(ship.hitSeq!==seenHit){ seenHit=ship.hitSeq; $("banner").style.color="#ff4a4a"; $("banner").textContent=ship.hitMsg; bannerT=8; applyDmg(); }

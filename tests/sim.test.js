@@ -673,3 +673,11 @@ test("command: the local holds (host/solo) do not block a seated network player"
   assert.ok(Sim.command(ship, { type: "set_speed", kt: 10 }, Object.assign({ pid: "g1" }, ctx)).ok, "guest holding NAV can steer");
   assert.ok(!Sim.command(ship, { type: "set_speed", kt: 5 }, Object.assign({ pid: "g2" }, ctx)).ok, "other unseated guest refused");
 });
+test("viewFor: identify time and own SAM ids; drain acks carry the command message", () => {
+  const ship = Sim.newShip(), c = mkEn(20); c.id = 7; const T = Sim.trkOf(ship, c); T.seen = true; T.px = 3; T.py = 4;
+  ship.def.sams.push({ uid: 5, x: 1, y: 2, hdg: 0 });
+  const v = Sim.viewFor([ship, c], [], ship, null);
+  assert.ok(v.tracks[0].idT > 0, "identify time sent"); assert.equal(v.sams.find(s => s.own).uid, 5);
+  const ib = Sim.newInbox(); Sim.enqueue(ib, "g", { t: "cmd", seq: 1, type: "link", args: {} });
+  const r = Sim.drain(ib, () => ship, { contacts: [], missiles: [] }); assert.equal(r[0].reply.t, "ack"); assert.ok(typeof r[0].reply.msg === "string" && r[0].reply.msg.length > 0, "link result text in the ack");
+});
