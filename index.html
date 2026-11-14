@@ -352,10 +352,10 @@ function draw(){
     if(S.labels){ g.fillStyle="#b388ff"; g.textAlign="left"; g.textBaseline="middle"; g.fillText("E"+TK(c).esmNo+" "+c.emit.name,cx+Math.cos(a)*R*0.62+6,cy+Math.sin(a)*R*0.62); }
     g.restore(); }
   // ally ESM lines (white), only while LINK is on and the line crosses ours
-  if(ship.link) for(const c of contacts){ if(!TK(c).esm||!c.esmA) continue;
-    if(!Sim.rays(ship.x,ship.y,TK(c).esm.brg,ally.x,ally.y,c.esmA.brg)) continue;
-    const dx=ally.x-ship.x, dy=ally.y-ship.y, b=Math.atan2(dx,dy)-rot*Math.PI/180, ax=cx+Math.sin(b)*Math.hypot(dx,dy)*px, ay=cy-Math.cos(b)*Math.hypot(dx,dy)*px, a=A(c.esmA.brg), f=Math.max(0.35,1-0.65*(ally.esmS.t-c.esmA.t)/Sim.CFG.ESM.HOLD);
-    g.save(); g.globalAlpha=f; g.strokeStyle="#fff"; g.lineWidth=1.2; g.setLineDash([7,5]); g.beginPath(); g.moveTo(ax,ay); g.lineTo(ax+Math.cos(a)*R*2,ay+Math.sin(a)*R*2); g.stroke(); g.restore(); }
+  if(ship.link) for(const c of contacts){ if(!TK(c).esm) continue; // white dashed lines: every linked ally's bearing that crosses ours (a FIX candidate)
+    for(const al of drawAllies()){ if(al.sunk||(al.dead&&al.dead[1])) continue; const e=guest?c.esmA:Sim.trkOf(al,c).esm; if(!e||!Sim.rays(ship.x,ship.y,TK(c).esm.brg,al.x,al.y,e.brg)) continue;
+      const dx=al.x-ship.x, dy=al.y-ship.y, b=Math.atan2(dx,dy)-rot*Math.PI/180, ax=cx+Math.sin(b)*Math.hypot(dx,dy)*px, ay=cy-Math.cos(b)*Math.hypot(dx,dy)*px, a=A(e.brg), f=Math.max(0.35,1-0.65*(al.esmS.t-e.t)/Sim.CFG.ESM.HOLD);
+      g.save(); g.globalAlpha=f; g.strokeStyle="#fff"; g.lineWidth=1.2; g.setLineDash([7,5]); g.beginPath(); g.moveTo(ax,ay); g.lineTo(ax+Math.cos(a)*R*2,ay+Math.sin(a)*R*2); g.stroke(); g.restore(); } }
   // contacts (only what the radar has seen)
   g.lineWidth=1.6;
   for(const c of all()){
@@ -448,7 +448,7 @@ function sensUi(){
   $("emNote").textContent=radar.on?"Radar on: you can track radar contacts, but enemy ESM can hear you from far away."
     :"Radar off: enemy ESM cannot hear you, but you are blind to radar contacts and existing tracks fade out.";
   $("linkB").textContent="LINK  "+(ship.link?"ON":"OFF"); $("linkB").classList.toggle("on",!!ship.link);
-  $("linkNote").textContent=ship.linkMsg||"Shares ESM bearings with ally A1: where two bearing lines cross, a FIX marker appears for 5 s and can be fired at. LINK emits: enemy ESM can hear it.";
+  $("linkNote").textContent=ship.linkMsg||"Shares tracks and ESM bearings with every linked friendly ship (AI allies always link): where two bearing lines cross, a FIX marker appears for 5 s and can be fired at. LINK emits: enemy ESM can hear it.";
   $("sensList").innerHTML=SENSORS.map(x=>`<div class="srow"><span class="n">${x.name}</span><span>${x.model}</span><span class="s">${x.state()}</span></div>`).join("");
   const L=contacts.filter(c=>TK(c).esm).sort((a,b)=>TK(a).esmNo-TK(b).esmNo);
   identList();
@@ -757,8 +757,7 @@ function frame(t){
   const rdt=Math.min(0.1,(t-last)/1000); last=t; let sdt=rdt*TS[S.ts]; // rdt = real time (radar), sdt = scaled (ship motion)
   if(!S.paused&&!guest){ if(emcon()){ ship.def.ecm=false; ship.link=false; } if(ship.dead[1]){ ship.link=false; for(const c of contacts) TK(c).esm=null; }
     Sim.stepWorld(WORLD,rdt,sdt); // one unit list: motion (scaled dt), AI, sensors, defense, missiles
-    const lk=ship.link&&!ship.dead[1]&&!ally.dead[1]; for(const c of contacts) c.esmA=lk?(Sim.trkOf(ally,c).esm||null):null;
-  } // LINK sharing and FIX markers run inside the world step (per team); esmA below only feeds the white ally ESM lines
+  } // LINK sharing and FIX markers run inside the world step (per team)
   if(guest){ gMove(ship,rdt,ship.sunk&&ship.wreck); gMove(ally,rdt,ally.wreck); for(const m of missiles) gMove(m,rdt); const sd=Sim.CFG.DEFENSE.SAM.SPEED*rdt*gTs/3600; for(const q of ship.def.sams.concat(ally.def.sams,gFoeSams)){ const r=(q.hdg||0)*Math.PI/180; q.x+=Math.sin(r)*sd; q.y+=Math.cos(r)*sd; } radar.ang=Sim.norm(radar.ang+360/Sim.CFG.RADAR.PERIOD*rdt); radar.t+=rdt; esm.t+=rdt; ally.esmS.t+=rdt; if(ship.fire) ship.fire.t=Math.max(0,ship.fire.t-rdt); ship.def.cd=Math.max(0,ship.def.cd-rdt); } // between views the clocks keep running (every view overwrites them with the host's)
   blink=Math.floor(t/300)%2; S.lock=!ship.wreck&&missiles.some(m=>m.tid==="own"&&!m.state); // enemy missile aimed at us
   $("top").style.borderBottom=S.lock?"4px solid "+(blink?"#fff":"#ff3b3b"):"";
