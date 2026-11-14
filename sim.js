@@ -525,7 +525,7 @@
       return R(true); }
     if (st === undefined) return R(false, "Unknown command.");
     if (u.dead[st]) return R(false, STN_LONG[st] + " destroyed.");
-    if (u.holds && !u.holds[st]) return R(false, "You do not hold " + STN_LONG[st] + ".");
+    if (!(ctx && ctx.pid != null) && u.holds && !u.holds[st]) return R(false, "You do not hold " + STN_LONG[st] + "."); // u.holds = the local (host/solo/AI) issuer's seats; network players are gated by u.seats below
     if (ctx && ctx.pid != null && u.seats && !u.seats[st].includes(ctx.pid)) return R(false, "You do not hold " + STN_LONG[st] + "."); // network issuer: unseated players (and unheld stations) are refused; no seats yet = solo, everything allowed
     const rad = u.radar || ctx.radar, emcon = u.ctl === "human" && !rad.on && !u.dead[1], byId = (list, id) => list.find(k => k.id === id && !k.marker && !k.sunk);
     switch (cmd.type) {

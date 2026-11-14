@@ -604,7 +604,9 @@ function applyView(v){
   Object.assign(ship,{x:o.x,y:o.y,hdg:o.hdg,spd:o.spd,ordHdg:o.ordHdg,ordSpd:o.ordSpd,dead:o.dead,sunk:!!o.sunk,wreck:!!o.wreck,holds:o.holds,link:o.link,loadout:o.loadout,fire:o.fire,fireMsg:o.fireMsg,hitMsg:o.hitMsg,hitSeq:o.hitSeq,strikeMsg:o.strikeMsg,strikeSeq:o.strikeSeq});
   if(now<gHold.hdg) ship.ordHdg=oh; if(now<gHold.spd) ship.ordSpd=os; // an order just sent stays shown until the host's view catches up
   Object.assign(ship.def,{decoy:o.def.decoy,sam:o.def.sam,cd:o.def.cd,samCd:o.def.samCd,ciws:o.def.ciws,ciwsOn:o.def.ciwsOn,ecm:o.ecm});
-  radar.on=o.radarOn; radar.ang=o.radar.ang; radar.t=o.radar.t; esm.t=o.esmT; ally.esmS.t=o.allyEsmT;
+  radar.on=o.radarOn; // clocks: blend toward the host's value instead of snapping (the local clock drifts a little between views, a snap made the sweep jump back and forth)
+  const e=((o.radar.ang-radar.ang+540)%360)-180; radar.ang=Math.abs(e)>60?o.radar.ang:Sim.norm(radar.ang+e*0.3);
+  const bl=(a,b)=>Math.abs(b-a)>2?b:a+(b-a)*0.3; radar.t=bl(radar.t,o.radar.t); esm.t=bl(esm.t,o.esmT); ally.esmS.t=bl(ally.esmS.t,o.allyEsmT);
   const fr=v.friends[0]; if(fr) Object.assign(ally,{x:fr.x,y:fr.y,hdg:fr.hdg,sunk:fr.sunk,wreck:fr.wreck}); else { ally.x=1e6; ally.y=1e6; }
   ship.def.sams=v.sams.filter(q=>q.own); ally.def.sams=v.sams.filter(q=>q.mine&&!q.own); gFoeSams=v.sams.filter(q=>!q.mine);
   const seen=new Set(); // tracks -> the ship's track table (the UI reads it through TK); the contact objects are kept between views so their linked names stay valid

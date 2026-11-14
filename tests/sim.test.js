@@ -665,3 +665,11 @@ test("viewFor: scope fields (identified heading, emit name, LINK friend bearing,
   assert.equal(v.sams.filter(s => s.own).length, 1); assert.equal(v.sams.filter(s => s.mine && !s.own).length, 1);
   assert.deepEqual(JSON.parse(JSON.stringify(v)), v, "still plain JSON");
 });
+test("command: the local holds (host/solo) do not block a seated network player", () => {
+  const ship = Sim.newShip(), ctx = { contacts: [], missiles: [] };
+  Sim.command(ship, { type: "release_station", stn: 0 }, ctx); // host releases NAVIGATION
+  assert.ok(!Sim.command(ship, { type: "set_speed", kt: 10 }, ctx).ok, "local issuer refused");
+  assert.ok(Sim.command(ship, { type: "take_station", stn: 0 }, Object.assign({ pid: "g1" }, ctx)).ok);
+  assert.ok(Sim.command(ship, { type: "set_speed", kt: 10 }, Object.assign({ pid: "g1" }, ctx)).ok, "guest holding NAV can steer");
+  assert.ok(!Sim.command(ship, { type: "set_speed", kt: 5 }, Object.assign({ pid: "g2" }, ctx)).ok, "other unseated guest refused");
+});
