@@ -3,7 +3,7 @@ name: Android APK
 on:
   push:
     branches: [main]
-    paths: ['android/**', 'index.html', 'sim.js', 'net.js', '.github/workflows/android.yml']
+    paths: ['android/**', 'index.html', 'sim.js', 'net.js', 'lobby.js', '.github/workflows/android.yml']
   workflow_dispatch:
 
 permissions:

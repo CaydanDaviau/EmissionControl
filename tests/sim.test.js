@@ -681,3 +681,13 @@ test("viewFor: identify time and own SAM ids; drain acks carry the command messa
   const ib = Sim.newInbox(); Sim.enqueue(ib, "g", { t: "cmd", seq: 1, type: "link", args: {} });
   const r = Sim.drain(ib, () => ship, { contacts: [], missiles: [] }); assert.equal(r[0].reply.t, "ack"); assert.ok(typeof r[0].reply.msg === "string" && r[0].reply.msg.length > 0, "link result text in the ack");
 });
+
+test("lobby: players join in spectators, host moves them, solo team cap = half the room, leave removes", () => {
+  const L = require("../lobby.js"), r = L.newRoom({ name: "R", mode: "solo", max: 4 }, "host", "H");
+  assert.equal(r.players[0].team, "S"); assert.ok(L.add(r, "g1", "A")); assert.ok(L.add(r, "g2", "B")); assert.ok(L.add(r, "g3", "C")); assert.equal(L.add(r, "g4", "D"), false, "room full");
+  assert.ok(L.move(r, "host", "A").ok); assert.ok(L.move(r, "g1", "A").ok); assert.equal(L.move(r, "g2", "A").ok, false, "cap 2 per team at max 4");
+  assert.ok(L.move(r, "g2", "B").ok); assert.ok(L.move(r, "host", "S").ok); assert.ok(L.move(r, "g2", "A").ok);
+  assert.equal(L.move(r, "zz", "A").ok, false); assert.equal(L.move(r, "g1", "X").ok, false);
+  L.remove(r, "g1"); assert.equal(L.find(r, "g1"), undefined); assert.equal(L.view(r, "g3").you, "g3");
+  assert.equal(L.cap(L.newRoom({ mode: "crew", max: 16 }, "h", "H")), Infinity);
+});

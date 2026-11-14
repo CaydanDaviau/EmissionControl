@@ -90,6 +90,7 @@ tr.sel{background:#2a2f33}
 .navnot #secSpd button,.navnot #secHdg button,.navnot #secHdg input{pointer-events:none;opacity:.4}
 .ov .stnrow{display:flex;gap:6px;width:220px}
 #mp .mpw{width:280px;display:flex;flex-direction:column;gap:8px}#mp .mpw#mpTabs{flex-direction:row}#mp .mpi{width:100%;box-sizing:border-box;padding:10px;background:#0c0d0e;color:#ddd;border:1px solid var(--dim);font-size:14px}#mp button{width:100%}#mp #mpTabs button{flex:1;width:auto;padding:9px 0;font-size:11px}#mp button.mps{width:auto;padding:8px 12px;font-size:12px}#mp .mpr{display:flex;justify-content:space-between;align-items:center;font-size:13px;color:#ccc}#mp .mpstep{display:flex;gap:10px;align-items:center}#mp .mpstep button{padding:6px 14px}
+#room .rsec{border:1px solid var(--dim);padding:8px}#room .rsec h3{margin:0 0 6px;font-size:12px;letter-spacing:2px;font-weight:normal;color:#aaa;display:flex;justify-content:space-between}#room .rp{display:flex;justify-content:space-between;align-items:center;padding:4px 0;font-size:14px;color:#ddd}#room .rp button{width:auto;padding:5px 14px;margin-left:6px;font-size:13px}#room .rp .me{color:#3fbf8a}#room .none{font-size:12px;color:#666}
 #mp .rm{border:1px solid var(--dim);padding:9px;font-size:13px;color:#ddd;cursor:pointer}#mp .rm .rh{display:flex;justify-content:space-between}#mp .rm .rd{margin-top:8px;font-size:12px;color:#aaa;display:flex;flex-direction:column;gap:6px;cursor:default}.ov .stnrow button{flex:1;width:auto;padding:9px 0;font-size:11px}
 #navDeadSec{display:none;color:#ff4a4a;letter-spacing:2px;text-align:center}.navdead #navDeadSec{display:block}
 #banner{position:absolute;left:0;right:0;bottom:6px;text-align:center;pointer-events:none;z-index:10;color:#ff4a4a;font-weight:bold;font-size:15px;text-shadow:0 0 4px #000;display:none}
@@ -229,9 +230,13 @@ body.guest .dbg,body.guest #tsB{display:none}
 <button id="mpHost">CREATE</button></div>
 <div id="mpLog" class="mpw" style="font-size:12px;min-height:40px;white-space:pre-wrap"></div>
 <button id="mpPing" style="display:none">PING</button><button id="mpLeave" style="display:none">LEAVE ROOM</button><button id="mpBack">BACK</button></div>
+<div class="ov" id="room" style="justify-content:flex-start;overflow:auto;padding:18px 0;gap:10px"><h1 id="rmTitle" style="font-size:20px;margin:0"></h1><div id="rmInfo" style="font-size:12px;color:#aaa"></div>
+<div id="rmBody" style="width:300px;display:flex;flex-direction:column;gap:10px"></div>
+<button id="rmStart" style="display:none;width:300px">START NOW (temporary)</button><button id="rmLeave" style="width:300px">LEAVE ROOM</button></div>
 <div class="ov" id="settings"><h1>SETTINGS</h1><div class="row"><span class="lbl">Radar sweep</span><button id="sweepB" style="width:100px">On</button></div><button id="backB">BACK</button></div>
 <script src="sim.js"></script>
 <script src="net.js"></script>
+<script src="lobby.js"></script>
 <script>
 "use strict";
 const $=id=>document.getElementById(id);
@@ -607,7 +612,7 @@ function sweepUi(){ $("sweepB").textContent=sweepOn?"On":"Off"; $("sweepB").clas
 $("startB").onclick=()=>{ $("startB").textContent="RESUME"; showMenu(false); };
 $("menuB").onclick=()=>showMenu(true);
 let mpS=null; const mpLog=s=>{ $("mpLog").textContent=s; };
-let mpSeq=0, mpTick=0; const mpInbox=Sim.newInbox(), mpOpen=new Set();
+let mpRun=false, mpRoom=null, mpSeq=0, mpTick=0; const mpInbox=Sim.newInbox(), mpOpen=new Set();
 const mpUnits=()=>[ship,ally].concat(contacts), mpCtx=()=>({radar:ship.radar,contacts:all(),missiles});
 // ---- guest: the real UI runs on shadow objects (ship / contacts / missiles / ally) filled from the host's filtered view; every action goes to the host as a cmd message ----
 function applyView(v){
@@ -631,7 +636,7 @@ function applyView(v){
   if(document.activeElement!==$("hdgIn")) $("hdgIn").value=pad3(ship.ordHdg);
 }
 function guestView(v,ts){ gTs=ts===undefined?1:ts;
-  const first=!guest; guest=true; if(first){ ship.trk={}; gC.clear(); } // drop the track records of the local game: the shadow contacts get their own
+  const first=!guest; guest=true; $("room").classList.remove("show"); if(first){ ship.trk={}; gC.clear(); } // drop the track records of the local game: the shadow contacts get their own
   applyView(v);
   if(first){ document.body.classList.add("guest"); $("mp").classList.remove("show"); showMenu(false); $("startB").textContent="RESUME"; $("aiDbg").style.display="none"; seenHit=ship.hitSeq; seenStrike=ship.strikeSeq||0; ui(); sensUi(); applyDmg(); }
 }
@@ -643,10 +648,10 @@ function guestErr(msg,seq){ guestAck({seq,msg}); $("banner").style.color="#ffd83
 
 const mpCmd=(type,args)=>{ if(mpS&&mpS.role==="guest") mpS.send("host",{t:"cmd",seq:++mpSeq,type,args}); };
 setInterval(()=>{ if(!mpS||mpS.role!=="host") return; const r=Sim.drain(mpInbox,()=>ship,mpCtx()); for(const x of r) mpS.send(x.pid,x.reply); },100);
-setInterval(()=>{ if(!mpS||mpS.role!=="host") return; mpTick++; const us=mpUnits(); for(const id of mpOpen) mpS.send(id,{t:"view",tick:mpTick,ts:S.paused?0:TS[S.ts],v:Sim.viewFor(us,missiles,ship,id)}); },500);
-const mpH={ onStatus:mpLog, onPeer:(id,n,s)=>{ if(s==="open"){ mpOpen.add(id); $("mpPing").style.display=""; $("mpLeave").style.display=""; } if(s==="closed"){ mpOpen.delete(id); Sim.dropPlayer(ship,id); }
+setInterval(()=>{ if(!mpS||mpS.role!=="host"||!mpRun) return; mpTick++; const us=mpUnits(); for(const id of mpOpen) mpS.send(id,{t:"view",tick:mpTick,ts:S.paused?0:TS[S.ts],v:Sim.viewFor(us,missiles,ship,id)}); },500);
+const mpH={ onStatus:mpLog, onPeer:(id,n,s)=>{ if(s==="open"){ mpOpen.add(id); if(mpRoom&&!mpRun){ Lobby.add(mpRoom,id,n); roomSend(); roomRender(Lobby.view(mpRoom,"host")); } $("mpPing").style.display=""; $("mpLeave").style.display=""; } if(s==="closed"){ mpOpen.delete(id); Sim.dropPlayer(ship,id); if(mpRoom){ Lobby.remove(mpRoom,id); roomSend(); roomRender(Lobby.view(mpRoom,"host")); } }
   mpLog((mpS&&mpS.role==="host"?"Room "+mpS.code+"\nPlayers connected: "+mpOpen.size+"\nPress BACK, then START to run the game.":id+": "+s)); },
-  onMsg:(from,m)=>{ if(mpS&&mpS.role==="host"){ if(m&&m.t==="cmd") Sim.enqueue(mpInbox,from,m); } else if(m.t==="view") guestView(m.v,m.ts); else if(m.t==="err") guestErr(m.msg,m.seq); else if(m.t==="ack") guestAck(m); }, onRtt:(id,ms)=>mpLog("Ping "+id+": "+ms+" ms"), onEnd:r=>{ if(guest){ try{ sessionStorage.setItem("emcon.mp","Disconnected: "+r); }catch(e){} location.reload(); return; } mpLog("Disconnected: "+r); mpS=null; mpOpen.clear(); $("mpPing").style.display="none"; $("mpLeave").style.display="none"; } };
+  onMsg:(from,m)=>{ if(mpS&&mpS.role==="host"){ if(m&&m.t==="cmd") Sim.enqueue(mpInbox,from,m); } else if(m.t==="room") roomRender(m.room); else if(m.t==="start"){ $("room").classList.remove("show"); } else if(m.t==="view") guestView(m.v,m.ts); else if(m.t==="err") guestErr(m.msg,m.seq); else if(m.t==="ack") guestAck(m); }, onRtt:(id,ms)=>mpLog("Ping "+id+": "+ms+" ms"), onEnd:r=>{ if(guest){ try{ sessionStorage.setItem("emcon.mp","Disconnected: "+r); }catch(e){} location.reload(); return; } mpLog("Disconnected: "+r); mpS=null; mpOpen.clear(); $("mpPing").style.display="none"; $("mpLeave").style.display="none"; } };
 const mpName=()=>$("mpName").value.trim()||"Player";
 $("mpBack").onclick=()=>{ $("mp").classList.remove("show"); $("menu").classList.add("show"); };
 try{ const m=sessionStorage.getItem("emcon.mp"); if(m){ sessionStorage.removeItem("emcon.mp"); mpLog(m); $("menu").classList.remove("show"); $("mp").classList.add("show"); } }catch(e){}
@@ -670,9 +675,25 @@ async function mpRefresh(){ const el=$("mpRooms"); el.textContent="Loading..."; 
       const j=document.createElement("button"); j.textContent=r.players>=r.max?"ROOM FULL":"JOIN"; j.disabled=r.players>=r.max; j.onclick=()=>mpJoinBy({code:r.code,password:pw?pw.value:""}); det.appendChild(j); d.appendChild(det); };
     el.appendChild(d); }); }catch(e){ el.textContent="Error: "+e.message; } }
 $("mpList").onclick=mpRefresh;
+// ---- room screen (before the match): Team A | Spectators | Team B; the host moves players with the arrows ----
+const roomSend=()=>{ if(mpS&&mpS.role==="host"&&mpRoom) for(const id of mpOpen) mpS.send(id,{t:"room",room:Lobby.view(mpRoom,id)}); };
+function roomMove(id,to){ const r=Lobby.move(mpRoom,id,to); if(!r.ok){ $("rmInfo").textContent=r.msg; return; } roomSend(); roomRender(Lobby.view(mpRoom,"host")); }
+function roomRender(rm){ $("mp").classList.remove("show"); $("room").classList.add("show"); const host=mpS&&mpS.role==="host";
+  $("rmTitle").textContent=rm.name; $("rmInfo").textContent=(rm.mode==="solo"?"Solo ship":"Crew")+" \u00b7 "+(rm.pvp==="pve"?"PvE":"PvP")+" \u00b7 "+rm.players.length+"/"+rm.max+" players"+(rm.mode==="solo"?" \u00b7 max "+Lobby.cap(rm)+" per team":"");
+  const body=$("rmBody"); body.innerHTML="";
+  for(const [t,label] of [["A","TEAM A"],["S","SPECTATORS"],["B","TEAM B"]]){ const ps=rm.players.filter(p=>p.team===t), sec=document.createElement("div"); sec.className="rsec"; const h=document.createElement("h3"); h.innerHTML="<span></span><span></span>"; h.children[0].textContent=label; h.children[1].textContent=ps.length; sec.appendChild(h);
+    if(!ps.length){ const n=document.createElement("div"); n.className="none"; n.textContent=t==="S"?"Nobody waiting":"Empty slots are filled by AI ships"; sec.appendChild(n); }
+    for(const p of ps){ const row=document.createElement("div"); row.className="rp"; const nm=document.createElement("span"); nm.textContent=p.name+(p.id==="host"?" (host)":""); if(p.id===rm.you) nm.className="me"; row.appendChild(nm);
+      if(host){ const bx=document.createElement("span"); const mk=(txt,to)=>{ const b=document.createElement("button"); b.textContent=txt; b.onclick=()=>roomMove(p.id,to); bx.appendChild(b); };
+        if(t==="S"){ mk("\u25c0","A"); mk("\u25b6","B"); } else mk(t==="A"?"\u25b6":"\u25c0","S"); row.appendChild(bx); }
+      sec.appendChild(row); }
+    body.appendChild(sec); }
+  $("rmStart").style.display=host?"":"none"; }
+$("rmStart").onclick=()=>{ if(!mpS||mpS.role!=="host") return; mpRun=true; for(const id of mpOpen) mpS.send(id,{t:"start"}); $("room").classList.remove("show"); $("startB").click(); }; // temporary: slice 4 replaces this with the 5 s countdown
+$("rmLeave").onclick=()=>{ if(mpS){ mpS.close(); mpS=null; } if(guest||!mpRoom){ try{ sessionStorage.setItem("emcon.mp","Left the room."); }catch(e){} location.reload(); return; } mpRoom=null; mpRun=false; mpOpen.clear(); $("room").classList.remove("show"); $("mp").classList.add("show"); mpLog("Left the room."); };
 async function mpJoinBy(o){ if(mpS) mpS.close(); mpLog("Joining..."); try{ mpS=await Net.joinBy(Object.assign({player:mpName()},o),mpH); mpLog("In room "+mpS.code+"\nConnecting to host..."); }catch(e){ mpErr(e); } }
 $("mpJoin").onclick=()=>{ const n=$("mpJName").value.trim(); if(!n){ mpLog("Enter the room name."); return; } mpJoinBy({name:n,password:$("mpJPw").value}); };
-$("mpHost").onclick=async()=>{ const n=$("mpCName").value.trim(); if(!n){ mpLog("Enter a room name."); return; } if(mpS) mpS.close(); mpLog("Creating room..."); try{ mpS=await Net.host({name:n,password:$("mpCPw").value,mode:MPC.mode,pvp:MPC.pvp,public:MPC.pub,max:MPC.max,scenario:$("mpCMap").value,player:mpName()},mpH); mpLog("Room \""+n+"\" created.\nWaiting for players..."); }catch(e){ mpErr(e); } };
+$("mpHost").onclick=async()=>{ const n=$("mpCName").value.trim(); if(!n){ mpLog("Enter a room name."); return; } if(mpS) mpS.close(); mpLog("Creating room..."); try{ mpRun=false; mpS=await Net.host({name:n,password:$("mpCPw").value,mode:MPC.mode,pvp:MPC.pvp,public:MPC.pub,max:MPC.max,scenario:$("mpCMap").value,player:mpName()},mpH); mpLog("Room \""+n+"\" created."); mpRoom=Lobby.newRoom({name:n,mode:MPC.mode,pvp:MPC.pvp,max:MPC.max,scenario:$("mpCMap").value},"host",mpName()); roomRender(Lobby.view(mpRoom,"host")); }catch(e){ mpErr(e); } };
 $("mpPing").onclick=()=>{ if(!mpS) return; if(mpS.role==="guest") mpS.ping("host"); else Object.keys(mpS.dcs).forEach(id=>mpS.ping(id)); };
 $("setB").onclick=()=>{ $("menu").classList.remove("show"); $("settings").classList.add("show"); };
 $("backB").onclick=()=>{ $("settings").classList.remove("show"); $("menu").classList.add("show"); };
