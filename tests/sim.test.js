@@ -790,3 +790,20 @@ test("buildMatch: per-team counts (uneven) and 5 spawn slots per side, extra shi
   assert.equal(A.length, 1); assert.equal(B.length, 7);
   const xs = B.slice(0, 5).map(s => s.unit.x).sort((a, b) => a - b); assert.equal(new Set(xs).size, 5); assert.ok(B.slice(0, 5).every(s => Math.abs(s.unit.y - 35) < 1e-6)); assert.ok(B[5].unit.y > 35);
 });
+
+test("teamLinkStep: linked units share tracks and cross ESM bearings team-wide; unlinked humans get nothing; AI always shares", () => {
+  const L = require("../lobby.js"), r = L.newRoom({ name: "t", mode: "solo", max: 6 }, "h", "H"); L.add(r, "g", "G"); L.move(r, "h", "A"); L.move(r, "g", "A"); r.counts = { A: 3, B: 1 };
+  const W = Sim.newWorld(Sim.buildMatch(r, 4)), [h, g, ai] = W.units.filter(u => u.team === "blue"), en = W.units.find(u => u.team === "red");
+  h.x = -10; h.y = 0; g.x = 10; g.y = 0; ai.x = 0; ai.y = -20; en.x = 0; en.y = 30; // enemy north; bearings from h and g cross at it
+  const bear = (u) => (Math.atan2(en.x - u.x, en.y - u.y) * 180 / Math.PI + 360) % 360;
+  const hear = (u) => { const t = Sim.trkOf(u, en); t.esm = { brg: bear(u), t: u.esmS.t }; };
+  hear(h); hear(g); h.link = false; g.link = false; Sim.teamLinkStep(W, 0.1);
+  assert.equal(h.fixes.length, 0, "unlinked humans: no FIX");
+  h.link = true; g.link = true; Sim.teamLinkStep(W, 0.1);
+  assert.equal(h.fixes.length, 1); assert.equal(g.fixes, h.fixes); assert.ok(Math.hypot(h.fixes[0].x - en.x, h.fixes[0].y - en.y) < 1, "marker at the emitter");
+  h.esmS.t += 10; g.esmS.t += 10; for (let i = 0; i < 60; i++) Sim.teamLinkStep(W, 0.1); assert.equal(h.fixes.length, 0, "bearings stale, marker expires after FIX.LIFE");
+  const t = Sim.trkOf(h, en); t.tracked = true; t.q = 0.8; t.px = en.x; t.py = en.y; Sim.teamLinkStep(W, 0.1);
+  assert.ok(Sim.trkOf(g, en).tracked && Sim.trkOf(g, en).lk, "human-human share"); assert.ok(Sim.trkOf(ai, en).tracked, "AI ally receives it");
+  h.link = false; g.link = false; for (const u of [g, ai]) { const x = Sim.trkOf(u, en); x.tracked = false; x.lk = false; } Sim.teamLinkStep(W, 0.1);
+  assert.ok(!Sim.trkOf(g, en).tracked, "LINK off: nothing shared");
+});

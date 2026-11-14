@@ -430,6 +430,27 @@
     if (al[0]) { al[0].escort = true; al[0].ai.wp = null; al[0].x = me.x + CFG.ALLY.OFFSET; al[0].y = me.y; }
     return match;
   }
+  // ---- team LINK / FIX (world step): every unit of a team that is LINKED (AI units always, humans with LINK on, sensors alive) shares tracks and ESM bearings with the others ----
+  const linkOn = u => !u.sunk && !(u.dead && u.dead[1]) && (u.ai ? true : !!u.link);
+  function teamLinkStep(W, rdt) {
+    const U = W.units, F = CFG.FIX; W.fixes = W.fixes || {};
+    for (const team of new Set(U.map(u => u.team))) {
+      const M = U.filter(u => u.team === team && linkOn(u)), allFoes = U.filter(f => f.team !== team), foes = allFoes.filter(f => !f.sunk), fixes = W.fixes[team] = W.fixes[team] || [];
+      for (const m of M) for (const f of allFoes) { const t = peekTrk(m, f); if (t && !t.tracked) t.lk = false; } // a shared track that was dropped is gone (lk = copied from a partner, never re-shared)
+      for (const a of M) for (const b of M) { if (a === b) continue;
+        for (const f of foes) { const s = peekTrk(a, f); if (!s || !s.tracked || s.lk) continue; const d = trkOf(b, f); if (d.tracked && !d.lk) continue; // the receiver already holds its own track
+          if (!d.lk || s.q >= d.q) { d.q = s.q; d.px = s.px; d.py = s.py; } d.seen = true; d.tracked = true; d.lk = true; d.lastHit = b.radar ? b.radar.t : d.lastHit;
+          if (b.ai && s.identified && d.known === null) d.known = s.cls === "host" ? "host" : "neutral"; } }
+      for (const f of foes) { const L = M.map(m => { const r = peekTrk(m, f); return r && r.esm && m.esmS && m.esmS.t - r.esm.t <= F.FRESH ? { m, r } : null; }).filter(Boolean); let best = null; // ESM FIX: the widest crossing of two fresh bearings from different members
+        for (let i = 0; i < L.length; i++) for (let j = i + 1; j < L.length; j++) { const p = rays(L[i].m.x, L[i].m.y, L[i].r.esm.brg, L[j].m.x, L[j].m.y, L[j].r.esm.brg); if (!p) continue;
+          const sep = Math.abs(Math.sin((L[i].r.esm.brg - L[j].r.esm.brg) * Math.PI / 180)); if (!best || sep > best.sep) best = { p, sep, r: L[i].r }; }
+        if (!best) continue; const k = keyOf(f); let mk = fixes.find(x => x.emId === k);
+        if (!mk) { mk = { id: "F" + k, emId: k, marker: true, seen: true, tracked: true, identified: true, cls: "unk", q: 1, esmNo: best.r.esmNo }; fixes.push(mk); }
+        mk.x = mk.px = best.p.x; mk.y = mk.py = best.p.y; mk.t = F.LIFE; }
+      for (let i = fixes.length - 1; i >= 0; i--) if ((fixes[i].t -= rdt) <= 0) fixes.splice(i, 1);
+      for (const u of U) if (u.team === team && isShip(u)) u.fixes = linkOn(u) ? fixes : (u._fx = u._fx || []); // linked humans see the team's markers
+      aiFixStep(U.filter(u => u.team === team && u.ai), rdt); } // the AI crosses its own bearings the same way (shots at hostile FIX)
+  }
   // ---- world: one list of units drives the whole match (humans and AI alike) ----
   // newWorld(match) -> { units, missiles, ref }; ref = the reference human ship (carries the missile counters/uids and banners for non-human targets).
   const newWorld = (match, missiles) => { const units = match.units, ref = units.find(isShip) || units[0]; return { units, missiles: missiles || [], ref }; };
@@ -441,7 +462,7 @@
       const foes = foesOfU(u); if (u.dead[1]) u.radar.on = false;
       radarSweep(u, u.radar, foes, rdt); if (!u.dead[1]) esmSweep(u, u.esmS, foes, rdt, "esm"); identifySweep(u, foes, rdt, u.radar.on);
       fireStep(u, foes.concat(u.fixes || []), M, rdt, ref); reloadStep(u, rdt); ecmStep(u, M, rdt); ciwsStep(u, M, rdt, m => !m.state && hostileTo(u, m), true); }
-    reap(M, rdt);
+    teamLinkStep(W, rdt); reap(M, rdt);
   }
   const allySamMove = aiSamMove;
   // ---- enemy AI (first stage): patrol, duty-cycled radar, ESM; same sensor rules as the player, no weapons yet. Real-time dt ----
@@ -628,6 +649,6 @@
       out.push({ pid, reply: r.ok ? (r.msg ? { t: "ack", seq, msg: r.msg } : { t: "ack", seq }) : { t: "err", seq, msg: r.msg || "Refused." } }); } // ack may carry the command's message (e.g. LINK / SAM / decoy result)
     return out;
   }
-  const api = { newWorld, stepWorld, buildMatch, offlineScenario, newInbox, enqueue, drain, dropPlayer, seatsOf, viewFor, linkShare, command, trkOf, reloadStep, newTrk, toggleLink, newAlly, resetAlly, allyStep, stepUnit, launchMissile, rays, fixStep, aiFixStep, initEnemy, resetEnemy, aiDefStep, aiSamMove, allyDefStep, allySamMove, resetAi, aiIdTime, aiFireStep, newAi, aiStep, ciwsStep, ecmStep, toggleEcm, deployDecoy, launchSam, setCiws, stepDefense, reap, defCheck, CFG, norm, diff, newShip, step, newRadar, newContact, pDetect, radarStep, setTag, stepContact, newEsm, pEsm, esmStep, startIdentify, cancelIdentify, identifyStep, identifyTime, fireCheck, startFire, cancelFire, fireStep, stepMissiles, hitShip, debugMissile, resetShip, STN };
+  const api = { teamLinkStep, newWorld, stepWorld, buildMatch, offlineScenario, newInbox, enqueue, drain, dropPlayer, seatsOf, viewFor, linkShare, command, trkOf, reloadStep, newTrk, toggleLink, newAlly, resetAlly, allyStep, stepUnit, launchMissile, rays, fixStep, aiFixStep, initEnemy, resetEnemy, aiDefStep, aiSamMove, allyDefStep, allySamMove, resetAi, aiIdTime, aiFireStep, newAi, aiStep, ciwsStep, ecmStep, toggleEcm, deployDecoy, launchSam, setCiws, stepDefense, reap, defCheck, CFG, norm, diff, newShip, step, newRadar, newContact, pDetect, radarStep, setTag, stepContact, newEsm, pEsm, esmStep, startIdentify, cancelIdentify, identifyStep, identifyTime, fireCheck, startFire, cancelFire, fireStep, stepMissiles, hitShip, debugMissile, resetShip, STN };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.Sim = api;
 })(typeof self !== "undefined" ? self : this);
