@@ -565,7 +565,7 @@
       ms.push({ uid: m.uid, n: m.n, lbl: m.lbl || null, side: m.side, w: m.w, x: r1(m.x), y: r1(m.y), hdg: r1(m.hdg), spd: m.spd, state: m.state || null, atMe, tid: mine ? m.tid : null, tx: mine && m.tx !== undefined ? r1(m.tx) : null, ty: mine && m.ty !== undefined ? r1(m.ty) : null }); }
     const friends = [], sams = [];
     for (const u of units) { if (u === v) continue; const mine = u.team === v.team;
-      if (mine) friends.push({ id: keyOf(u), x: r1(u.x), y: r1(u.y), hdg: r1(u.hdg), sunk: !!u.sunk, wreck: !!u.wreck });
+      if (mine) friends.push({ id: keyOf(u), x: r1(u.x), y: r1(u.y), hdg: r1(u.hdg), spd: r1(u.spd || 0), sunk: !!u.sunk, wreck: !!u.wreck });
       for (const q of (u.def && u.def.sams) || []) { if (!mine && Math.hypot(q.x - v.x, q.y - v.y) > CFG.RADAR.HORIZON) continue; sams.push({ x: r1(q.x), y: r1(q.y), hdg: r1(q.hdg || 0), mine }); } }
     for (const q of v.def.sams || []) sams.push({ x: r1(q.x), y: r1(q.y), hdg: r1(q.hdg || 0), mine: true, own: true, uid: q.uid });
     return { id: me, team: v.team, friends, sams, own: { x: r1(v.x), y: r1(v.y), hdg: r1(v.hdg), spd: r1(v.spd), ordHdg: r1(v.ordHdg || 0), ordSpd: v.ordSpd || 0, dead: v.dead.slice(), sunk: v.sunk, wreck: v.wreck, holds: pid != null ? seatsOf(v, pid) : (v.holds ? v.holds.slice() : [true, true, true, true]), radarOn: !!(v.radar && v.radar.on), ecm: !!v.def.ecm, link: !!v.link,

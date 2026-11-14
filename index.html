@@ -259,7 +259,10 @@ const radar=ship.radar, esm=ship.esmS;
 let sweepOn=true; try{ sweepOn=localStorage.getItem("emcon.sweep")!=="0"; }catch(e){}
 const S={paused:true,ri:4,rings:true,labels:true,grid:true,sel:null,hup:false,ts:0,ws:null};
 let blink=0,seenHit=0,seenStrike=0,bannerT=0,msel=null,defMsg=""; // msel = selected incoming missile uid
-let guest=false, gFoeSams=[]; const gHold={hdg:0,spd:0}, gC=new Map(), gPend={}; // guest mode: the sim does not run here, shadow objects are filled from the host view (see applyView)
+let guest=false, gFoeSams=[]; const gHold={hdg:0,spd:0}, gC=new Map(), gPend={}, gM=new Map(); let gTs=1; // gTs = host time scale (0 = paused); gM = guest missile objects by uid (kept so they move smoothly)
+const angD=(a,b)=>((b-a+540)%360)-180;
+function gSet(e,x,y,hdg,spd){ if(e.bx===undefined||Math.hypot(x-e.x,y-e.y)>2){ e.x=x; e.y=y; e.hdg=hdg; } e.bx=x; e.by=y; e.bh=hdg; e.spd=spd; } // new host sample: becomes the base; the displayed position eases toward the moving base
+function gMove(e,dt,still){ if(e.bx===undefined) return; if(e.spd&&!still){ const r=e.bh*Math.PI/180, d=e.spd*dt*gTs/3600; e.bx+=Math.sin(r)*d; e.by+=Math.cos(r)*d; } const k=Math.min(1,dt*8); e.x+=(e.bx-e.x)*k; e.y+=(e.by-e.y)*k; e.hdg=Sim.norm(e.hdg+angD(e.hdg,e.bh)*k); } // guest mode: the sim does not run here, shadow objects are filled from the host view (see applyView)
 const COL={own:"#fff",ally:"#4da3ff",unk:"#ffd83a",host:"#ff4a4a"};
 
 const cv=$("cv"),g=cv.getContext("2d");
@@ -601,13 +604,13 @@ const mpUnits=()=>[ship,ally].concat(contacts), mpCtx=()=>({radar:ship.radar,con
 // ---- guest: the real UI runs on shadow objects (ship / contacts / missiles / ally) filled from the host's filtered view; every action goes to the host as a cmd message ----
 function applyView(v){
   const o=v.own, oh=ship.ordHdg, os=ship.ordSpd, now=performance.now();
-  Object.assign(ship,{x:o.x,y:o.y,hdg:o.hdg,spd:o.spd,ordHdg:o.ordHdg,ordSpd:o.ordSpd,dead:o.dead,sunk:!!o.sunk,wreck:!!o.wreck,holds:o.holds,link:o.link,loadout:o.loadout,fire:o.fire,fireMsg:o.fireMsg,hitMsg:o.hitMsg,hitSeq:o.hitSeq,strikeMsg:o.strikeMsg,strikeSeq:o.strikeSeq});
+  gSet(ship,o.x,o.y,o.hdg,o.spd); Object.assign(ship,{ordHdg:o.ordHdg,ordSpd:o.ordSpd,dead:o.dead,sunk:!!o.sunk,wreck:!!o.wreck,holds:o.holds,link:o.link,loadout:o.loadout,fire:o.fire,fireMsg:o.fireMsg,hitMsg:o.hitMsg,hitSeq:o.hitSeq,strikeMsg:o.strikeMsg,strikeSeq:o.strikeSeq});
   if(now<gHold.hdg) ship.ordHdg=oh; if(now<gHold.spd) ship.ordSpd=os; // an order just sent stays shown until the host's view catches up
   Object.assign(ship.def,{decoy:o.def.decoy,sam:o.def.sam,cd:o.def.cd,samCd:o.def.samCd,ciws:o.def.ciws,ciwsOn:o.def.ciwsOn,ecm:o.ecm});
   radar.on=o.radarOn; // clocks: blend toward the host's value instead of snapping (the local clock drifts a little between views, a snap made the sweep jump back and forth)
   const e=((o.radar.ang-radar.ang+540)%360)-180; radar.ang=Math.abs(e)>60?o.radar.ang:Sim.norm(radar.ang+e*0.3);
   const bl=(a,b)=>Math.abs(b-a)>2?b:a+(b-a)*0.3; radar.t=bl(radar.t,o.radar.t); esm.t=bl(esm.t,o.esmT); ally.esmS.t=bl(ally.esmS.t,o.allyEsmT);
-  const fr=v.friends[0]; if(fr) Object.assign(ally,{x:fr.x,y:fr.y,hdg:fr.hdg,sunk:fr.sunk,wreck:fr.wreck}); else { ally.x=1e6; ally.y=1e6; }
+  const fr=v.friends[0]; if(fr){ gSet(ally,fr.x,fr.y,fr.hdg,fr.sunk||fr.wreck?0:(fr.spd||0)); Object.assign(ally,{sunk:fr.sunk,wreck:fr.wreck}); } else { ally.x=1e6; ally.y=1e6; ally.bx=undefined; }
   ship.def.sams=v.sams.filter(q=>q.own); ally.def.sams=v.sams.filter(q=>q.mine&&!q.own); gFoeSams=v.sams.filter(q=>!q.mine);
   const seen=new Set(); // tracks -> the ship's track table (the UI reads it through TK); the contact objects are kept between views so their linked names stay valid
   for(const t of v.tracks){ const id=cid(t.id); seen.add(id); let c=gC.get(id); if(!c){ c={id}; gC.set(id,c); }
@@ -616,10 +619,10 @@ function applyView(v){
   for(const id of [...gC.keys()]) if(!seen.has(id)){ gC.delete(id); delete ship.trk[id]; }
   contacts.length=0; for(const c of [...gC.values()].sort((a,b)=>a.id-b.id)) contacts.push(c);
   ship.fixes.length=0; for(const f of v.fixes) ship.fixes.push({id:f.id,emId:f.emId,marker:true,seen:true,tracked:true,identified:true,cls:"unk",q:1,px:f.px,py:f.py,t:f.t,esmNo:f.esmNo});
-  missiles.length=0; for(const m of v.missiles) missiles.push({uid:m.uid,n:m.n,lbl:m.lbl,side:m.side,w:m.w,x:m.x,y:m.y,hdg:m.hdg,spd:m.spd,state:m.state||undefined,tid:m.atMe?"own":m.tid,tx:m.tx===null?undefined:m.tx,ty:m.ty===null?undefined:m.ty});
+  const ms=new Set(); missiles.length=0; for(const m of v.missiles){ ms.add(m.uid); let g=gM.get(m.uid); if(!g){ g={uid:m.uid}; gM.set(m.uid,g); } gSet(g,m.x,m.y,m.hdg,m.state==='dead'?0:m.spd); Object.assign(g,{n:m.n,lbl:m.lbl,side:m.side,w:m.w,state:m.state||undefined,tid:m.atMe?"own":m.tid,tx:m.tx===null?undefined:m.tx,ty:m.ty===null?undefined:m.ty}); missiles.push(g); } for(const u of [...gM.keys()]) if(!ms.has(u)) gM.delete(u);
   if(document.activeElement!==$("hdgIn")) $("hdgIn").value=pad3(ship.ordHdg);
 }
-function guestView(v){
+function guestView(v,ts){ gTs=ts===undefined?1:ts;
   const first=!guest; guest=true; if(first){ ship.trk={}; gC.clear(); } // drop the track records of the local game: the shadow contacts get their own
   applyView(v);
   if(first){ document.body.classList.add("guest"); $("mp").classList.remove("show"); showMenu(false); $("startB").textContent="RESUME"; $("aiDbg").style.display="none"; seenHit=ship.hitSeq; seenStrike=ship.strikeSeq||0; ui(); sensUi(); applyDmg(); }
@@ -632,10 +635,10 @@ function guestErr(msg,seq){ guestAck({seq,msg}); $("banner").style.color="#ffd83
 
 const mpCmd=(type,args)=>{ if(mpS&&mpS.role==="guest") mpS.send("host",{t:"cmd",seq:++mpSeq,type,args}); };
 setInterval(()=>{ if(!mpS||mpS.role!=="host") return; const r=Sim.drain(mpInbox,()=>ship,mpCtx()); for(const x of r) mpS.send(x.pid,x.reply); },100);
-setInterval(()=>{ if(!mpS||mpS.role!=="host") return; mpTick++; const us=mpUnits(); for(const id of mpOpen) mpS.send(id,{t:"view",tick:mpTick,v:Sim.viewFor(us,missiles,ship,id)}); },500);
+setInterval(()=>{ if(!mpS||mpS.role!=="host") return; mpTick++; const us=mpUnits(); for(const id of mpOpen) mpS.send(id,{t:"view",tick:mpTick,ts:S.paused?0:TS[S.ts],v:Sim.viewFor(us,missiles,ship,id)}); },500);
 const mpH={ onStatus:mpLog, onPeer:(id,n,s)=>{ if(s==="open"){ mpOpen.add(id); $("mpPing").style.display=""; $("mpLeave").style.display=""; } if(s==="closed"){ mpOpen.delete(id); Sim.dropPlayer(ship,id); }
   mpLog((mpS&&mpS.role==="host"?"Room "+mpS.code+"\nPlayers connected: "+mpOpen.size+"\nPress BACK, then START to run the game.":id+": "+s)); },
-  onMsg:(from,m)=>{ if(mpS&&mpS.role==="host"){ if(m&&m.t==="cmd") Sim.enqueue(mpInbox,from,m); } else if(m.t==="view") guestView(m.v); else if(m.t==="err") guestErr(m.msg,m.seq); else if(m.t==="ack") guestAck(m); }, onRtt:(id,ms)=>mpLog("Ping "+id+": "+ms+" ms"), onEnd:r=>{ if(guest){ try{ sessionStorage.setItem("emcon.mp","Disconnected: "+r); }catch(e){} location.reload(); return; } mpLog("Disconnected: "+r); mpS=null; mpOpen.clear(); $("mpPing").style.display="none"; $("mpLeave").style.display="none"; } };
+  onMsg:(from,m)=>{ if(mpS&&mpS.role==="host"){ if(m&&m.t==="cmd") Sim.enqueue(mpInbox,from,m); } else if(m.t==="view") guestView(m.v,m.ts); else if(m.t==="err") guestErr(m.msg,m.seq); else if(m.t==="ack") guestAck(m); }, onRtt:(id,ms)=>mpLog("Ping "+id+": "+ms+" ms"), onEnd:r=>{ if(guest){ try{ sessionStorage.setItem("emcon.mp","Disconnected: "+r); }catch(e){} location.reload(); return; } mpLog("Disconnected: "+r); mpS=null; mpOpen.clear(); $("mpPing").style.display="none"; $("mpLeave").style.display="none"; } };
 const mpName=()=>$("mpName").value.trim()||"Player";
 $("mpB").onclick=()=>{ $("menu").classList.remove("show"); $("mp").classList.add("show"); };
 $("mpBack").onclick=()=>{ $("mp").classList.remove("show"); $("menu").classList.add("show"); };
@@ -672,7 +675,7 @@ function frame(t){
     Sim.allyDefStep(ally,missiles,rdt); // sensors destroyed: radar dead, ESM deaf
     Sim.radarStep(radar,ship,contacts,rdt); if(!ship.dead[1]) Sim.esmStep(esm,ship,contacts,rdt); const lk=ship.link&&!ship.dead[1]&&!ally.dead[1]; for(const c of contacts) c.esmA=lk?(Sim.trkOf(ally,c).esm||null):null; Sim.fixStep(ship.fixes,ship,ally,contacts,esm,ally.esmS,rdt); // the ally's bearings come from its own track records (its own ESM runs inside its AI)
     Sim.aiFixStep(contacts,rdt); Sim.identifyStep(contacts,rdt,radar.on,ship); Sim.fireStep(ship,all(),missiles,rdt); Sim.reap(missiles,rdt); Sim.ecmStep(ship,missiles,rdt); Sim.ciwsStep(ship,missiles,rdt); } // sensors run in real time
-  if(guest){ radar.ang=Sim.norm(radar.ang+360/Sim.CFG.RADAR.PERIOD*rdt); radar.t+=rdt; esm.t+=rdt; ally.esmS.t+=rdt; if(ship.fire) ship.fire.t=Math.max(0,ship.fire.t-rdt); ship.def.cd=Math.max(0,ship.def.cd-rdt); } // between views the clocks keep running (every view overwrites them with the host's)
+  if(guest){ gMove(ship,rdt,ship.sunk&&ship.wreck); gMove(ally,rdt,ally.wreck); for(const m of missiles) gMove(m,rdt); const sd=Sim.CFG.DEFENSE.SAM.SPEED*rdt*gTs/3600; for(const q of ship.def.sams.concat(ally.def.sams,gFoeSams)){ const r=(q.hdg||0)*Math.PI/180; q.x+=Math.sin(r)*sd; q.y+=Math.cos(r)*sd; } radar.ang=Sim.norm(radar.ang+360/Sim.CFG.RADAR.PERIOD*rdt); radar.t+=rdt; esm.t+=rdt; ally.esmS.t+=rdt; if(ship.fire) ship.fire.t=Math.max(0,ship.fire.t-rdt); ship.def.cd=Math.max(0,ship.def.cd-rdt); } // between views the clocks keep running (every view overwrites them with the host's)
   blink=Math.floor(t/300)%2; S.lock=!ship.wreck&&missiles.some(m=>m.tid==="own"&&!m.state); // enemy missile aimed at us
   $("top").style.borderBottom=S.lock?"4px solid "+(blink?"#fff":"#ff3b3b"):"";
   if(ship.hitSeq!==seenHit){ seenHit=ship.hitSeq; $("banner").style.color="#ff4a4a"; $("banner").textContent=ship.hitMsg; bannerT=8; applyDmg(); }
