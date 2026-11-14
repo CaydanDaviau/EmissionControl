@@ -406,6 +406,24 @@
     ciwsStep(c, missiles, dt, k => ssmSet.has(k) && !k.state, true);
   }
   function aiSamMove(c, missiles, dt) { if (c.def) stepDefense(c, missiles, dt); } // SCALED dt: AI and ally SAM flight and hit roll = the same code as the player's
+  // Match builder: turns a room (lobby.js state) into units. Team A = blue, B = red. Crew mode: one human ship per crewed ship (seats from the roles; call Lobby.autoRoles first), empty ships = AI. Solo mode: one human ship per player on a team, AI fills each team up to Lobby cap (ceil(max/2)). Spectators get no unit.
+  // Returns { units, ships: [{ id, team, type, pids, unit }] } (units = every ship incl. AI; ship.unit.pids lists the crew player ids, [] for AI).
+  function buildMatch(room, seed) {
+    const out = [], TEAM = { A: "blue", B: "red" }, SIDE = { A: -1, B: 1 }, GAP = 8, NM = CFG.RADAR.HORIZON + 8; // spawn distance north/south of the origin, spread along x
+    const place = (u, t, k, n) => { u.x = (k - (n - 1) / 2) * GAP; u.y = SIDE[t] * NM / 2; u.hdg = t === "A" ? 0 : 180; u.ordHdg = u.hdg; };
+    const mkHuman = (id, t, type, pids, seats) => { const u = newShip(); u.id = id; u.pids = pids; u.type = type; initUnit(u, TEAM[t], "human", (seed | 0) + out.length * 101 + 7); u.radar = newRadar((seed | 0) + out.length * 103 + 5);
+      u.seats = [0, 1, 2, 3].map(i => seats(i)); return u; };
+    const mkAi = (id, t, type, k, n) => { const c = newContact(id, 0, 1, { side: "enemy", speed: 15, emit: { name: t === "A" ? "AN/SPY-1D" : "Type 346B", range: CFG.RADAR.RANGE } }); const x = (k - (n - 1) / 2) * GAP, y = SIDE[t] * NM / 2;
+      c.x = x; c.y = y; c.hdg = t === "A" ? 0 : 180; c.type = type; c.pids = []; c.ai = newAi((seed | 0) + out.length * 131 + 11, [[x + 10, y + 2], [x + 10, y + 14], [x - 10, y + 14], [x - 10, y + 2]]); initUnit(c, TEAM[t], "ai", (seed | 0) + out.length * 137 + 13); return c; };
+    for (const t of ["A", "B"]) {
+      const list = [];
+      if (room.mode === "crew") room.ships[t].forEach((sh, i) => { const pids = room.players.filter(p => p.team === t && p.ship === i).map(p => p.id); list.push({ type: sh.type, pids, roles: sh.roles }); });
+      else { for (const p of room.players.filter(p => p.team === t)) list.push({ type: p.type, pids: [p.id], roles: null }); const need = Math.ceil(room.max / 2) - list.length; for (let i = 0; i < need; i++) list.push({ type: "ddg51", pids: [], roles: null }); }
+      list.forEach((e, k) => { const id = t.toLowerCase() + (k + 1);
+        const u = e.pids.length ? mkHuman(id, t, e.type, e.pids, i => (e.roles ? (e.roles[i] ? [e.roles[i]] : []) : e.pids.slice())) : mkAi(id, t, e.type, k, list.length);
+        if (u.ctl === "human") place(u, t, k, list.length); out.push({ id, team: t, type: e.type, pids: e.pids.slice(), unit: u }); }); }
+    return { units: out.map(o => o.unit), ships: out };
+  }
   const allySamMove = aiSamMove;
   // ---- enemy AI (first stage): patrol, duty-cycled radar, ESM; same sensor rules as the player, no weapons yet. Real-time dt ----
   const PRIM = { tracks: "tracked", q: "q", known: "known", idp: "idProg", lx: "px", ly: "py" }; // legacy AI names -> fields of the primary foe's record in a.trk (key "_" while no foe is bound yet)
@@ -590,6 +608,6 @@
       out.push({ pid, reply: r.ok ? (r.msg ? { t: "ack", seq, msg: r.msg } : { t: "ack", seq }) : { t: "err", seq, msg: r.msg || "Refused." } }); } // ack may carry the command's message (e.g. LINK / SAM / decoy result)
     return out;
   }
-  const api = { newInbox, enqueue, drain, dropPlayer, seatsOf, viewFor, linkShare, command, trkOf, reloadStep, newTrk, toggleLink, newAlly, resetAlly, allyStep, stepUnit, launchMissile, rays, fixStep, aiFixStep, initEnemy, resetEnemy, aiDefStep, aiSamMove, allyDefStep, allySamMove, resetAi, aiIdTime, aiFireStep, newAi, aiStep, ciwsStep, ecmStep, toggleEcm, deployDecoy, launchSam, setCiws, stepDefense, reap, defCheck, CFG, norm, diff, newShip, step, newRadar, newContact, pDetect, radarStep, setTag, stepContact, newEsm, pEsm, esmStep, startIdentify, cancelIdentify, identifyStep, identifyTime, fireCheck, startFire, cancelFire, fireStep, stepMissiles, hitShip, debugMissile, resetShip, STN };
+  const api = { buildMatch, newInbox, enqueue, drain, dropPlayer, seatsOf, viewFor, linkShare, command, trkOf, reloadStep, newTrk, toggleLink, newAlly, resetAlly, allyStep, stepUnit, launchMissile, rays, fixStep, aiFixStep, initEnemy, resetEnemy, aiDefStep, aiSamMove, allyDefStep, allySamMove, resetAi, aiIdTime, aiFireStep, newAi, aiStep, ciwsStep, ecmStep, toggleEcm, deployDecoy, launchSam, setCiws, stepDefense, reap, defCheck, CFG, norm, diff, newShip, step, newRadar, newContact, pDetect, radarStep, setTag, stepContact, newEsm, pEsm, esmStep, startIdentify, cancelIdentify, identifyStep, identifyTime, fireCheck, startFire, cancelFire, fireStep, stepMissiles, hitShip, debugMissile, resetShip, STN };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.Sim = api;
 })(typeof self !== "undefined" ? self : this);

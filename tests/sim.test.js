@@ -731,3 +731,23 @@ test("lobby solo: each player picks their own ship type; host may set anyone; gu
   const c = L.newRoom({ name: "C", mode: "crew", max: 4 }, "host", "H");
   assert.ok(!L.act(c, "host", { a: "ptype", id: "host", type: "ddg51" }).ok);
 });
+
+test("buildMatch: crew mode builds human ships with seats from roles, empty ships are AI, spectators get nothing", () => {
+  const L = require("../lobby.js"), r = L.newRoom({ name: "R", mode: "crew", max: 8 }, "host", "H"); L.add(r, "g1", "A"); L.add(r, "g2", "B"); L.add(r, "g3", "C");
+  L.act(r, "host", { a: "ships", team: "A", n: 2 }); L.act(r, "host", { a: "ships", team: "B", n: 2 });
+  L.act(r, "host", { a: "assign", id: "host", team: "A", ship: 0 }); L.act(r, "host", { a: "assign", id: "g1", team: "A", ship: 0 }); L.act(r, "host", { a: "assign", id: "g2", team: "B", ship: 1 });
+  L.act(r, "host", { a: "role", team: "A", ship: 0, stn: 0, id: "g1" }); L.autoRoles(r, () => 0.3);
+  const m = Sim.buildMatch(r, 5);
+  assert.equal(m.ships.length, 4); assert.deepEqual(m.ships.map(s => s.unit.ctl), ["human", "ai", "ai", "human"]);
+  const a1 = m.ships[0].unit; assert.equal(a1.team, "blue"); assert.deepEqual(a1.seats[0], ["g1"]); assert.ok(a1.seats.every(s => s.length === 1)); assert.deepEqual(a1.pids, ["host", "g1"]);
+  assert.equal(m.ships[3].unit.team, "red"); assert.equal(m.ships[3].unit.id, "b2"); assert.ok(m.ships[1].unit.ai && m.ships[1].unit.dead);
+  assert.ok(m.ships[0].unit.y < 0 && m.ships[3].unit.y > 0); assert.equal(new Set(m.units.map(u => u.id)).size, 4);
+});
+test("buildMatch: solo mode gives each team player one ship with all seats, AI fills each team to ceil(max/2)", () => {
+  const L = require("../lobby.js"), r = L.newRoom({ name: "R", mode: "solo", max: 6 }, "host", "H"); L.add(r, "g1", "A"); L.add(r, "g2", "B");
+  L.move(r, "host", "A"); L.move(r, "g1", "A"); L.move(r, "g2", "B");
+  const m = Sim.buildMatch(r, 9), A = m.ships.filter(s => s.team === "A"), B = m.ships.filter(s => s.team === "B");
+  assert.equal(A.length, 3); assert.equal(B.length, 3); assert.equal(A.filter(s => s.unit.ctl === "human").length, 2); assert.equal(B.filter(s => s.unit.ctl === "human").length, 1);
+  assert.deepEqual(A[1].unit.seats, [["g1"], ["g1"], ["g1"], ["g1"]]); assert.equal(A[2].unit.ctl, "ai");
+  assert.deepEqual(Sim.seatsOf(A[1].unit, "g1"), [true, true, true, true]); assert.deepEqual(Sim.seatsOf(A[1].unit, "host"), [false, false, false, false]);
+});
