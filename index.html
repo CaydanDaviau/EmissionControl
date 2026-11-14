@@ -259,16 +259,13 @@ document.querySelectorAll(".stb").forEach(b=>b.onclick=()=>showStation(stIdx+Num
 // ---- state ----
 const RANGES=[5,10,20,40,70,100,150,200,300];
 const TS=[1,5,20];
-const ship=Sim.newShip();
+const missiles=[]; // missiles in flight (shared with the world)
+const room0=Lobby.newRoom({name:"offline",mode:"solo",max:4},"me","Player"); Lobby.move(room0,"me","A"); // offline = a solo 2v2 room: you + an escort ally against two enemies
+const WORLD=Sim.newWorld(Sim.offlineScenario(Sim.buildMatch(room0,20261114)),missiles), ship=WORLD.ref;
 const LAT0=41+11.295/60, LON0=21+26.496/60;
-const EDGE=40; // enemy spawn: 40 nm north (just inside ESM range; radar horizon is 32 nm)
-function mkEnemy(id,brgDeg,R,aiSeed,seed){ const c=Sim.newContact(id,brgDeg,R,{side:"enemy",speed:15,emit:{name:"Type 346B",range:70}}), r=brgDeg*Math.PI/180, x=Math.sin(r)*R, y=Math.cos(r)*R;
-  c.ai=Sim.newAi(aiSeed,[[x+10,y+2],[x+10,y+14],[x-10,y+14],[x-10,y+2]]); c.hdg=90; Sim.initEnemy(c,seed); return c; }
 const TK=c=>c.marker?c:Sim.trkOf(ship,c); // the player's track record for a contact (fix markers carry their own fields)
-const contacts=[ mkEnemy(1,0,EDGE,20261114,4242), mkEnemy(2,70,38,20261115,4343) ]; // two enemies, both inside each other's ESM range of us
-const ally=Sim.newAlly(15,0), all=()=>contacts.concat(ship.fixes); // ship.fixes = ESM crossing markers (5 s)
+const contacts=WORLD.units.filter(u=>u.team!==ship.team), ally=WORLD.units.find(u=>u!==ship&&u.team===ship.team), all=()=>contacts.concat(ship.fixes); // ship.fixes = ESM crossing markers (5 s)
 const cid=v=>/^\d+$/.test(String(v))?+v:v, lbl=c=>c.marker?"FIX E"+TK(c).esmNo:String(c.id).padStart(4,"0"); 
-const missiles=[]; // own missiles in flight
 const radar=ship.radar, esm=ship.esmS;
 let sweepOn=true; try{ sweepOn=localStorage.getItem("emcon.sweep")!=="0"; }catch(e){}
 const S={paused:true,ri:4,rings:true,labels:true,grid:true,sel:null,hup:false,ts:0,ws:null};
@@ -745,15 +742,10 @@ $("dbgR").onclick=()=>{ Sim.resetShip(ship); radar.on=true; missiles.length=0; s
 let last=performance.now();
 function frame(t){
   const rdt=Math.min(0.1,(t-last)/1000); last=t; let sdt=rdt*TS[S.ts]; // rdt = real time (radar), sdt = scaled (ship motion)
-  if(!S.paused&&!guest){ while(sdt>0){ const h=Math.min(0.5,sdt); Sim.stepUnit(ship,h); Sim.stepUnit(ally,h,ship); for(const c of contacts) Sim.stepUnit(c,h); Sim.stepMissiles(missiles,contacts,h,ship,ally); Sim.stepDefense(ship,missiles,h); for(const c of contacts) Sim.aiSamMove(c,missiles,h); Sim.allySamMove(ally,missiles,h); sdt-=h; }
-    if(ship.dead[1]){ radar.on=false; for(const c of contacts) TK(c).esm=null; }
-    if(emcon()){ ship.def.ecm=false; ship.link=false; } if(ship.dead[1]) ship.link=false;
-    Sim.linkShare(ship,ally,contacts);
-    for(const c of contacts){ Sim.aiStep(c, ship, rdt,ally,contacts); Sim.aiFireStep(c,ship,missiles,rdt,ally,contacts); Sim.aiDefStep(c,missiles,rdt); }
-    Sim.aiStep(ally, ship, rdt,ally,contacts); Sim.aiFireStep(ally,ship,missiles,rdt,ally,contacts); // the ally runs the same AI as the enemies (team blue): radar duty cycle, ESM, tracks, fires at hostile contacts
-    Sim.allyDefStep(ally,missiles,rdt); // sensors destroyed: radar dead, ESM deaf
-    Sim.radarStep(radar,ship,contacts,rdt); if(!ship.dead[1]) Sim.esmStep(esm,ship,contacts,rdt); const lk=ship.link&&!ship.dead[1]&&!ally.dead[1]; for(const c of contacts) c.esmA=lk?(Sim.trkOf(ally,c).esm||null):null; Sim.fixStep(ship.fixes,ship,ally,contacts,esm,ally.esmS,rdt); // the ally's bearings come from its own track records (its own ESM runs inside its AI)
-    Sim.aiFixStep(contacts,rdt); Sim.identifyStep(contacts,rdt,radar.on,ship); Sim.fireStep(ship,all(),missiles,rdt); Sim.reap(missiles,rdt); Sim.ecmStep(ship,missiles,rdt); Sim.ciwsStep(ship,missiles,rdt); } // sensors run in real time
+  if(!S.paused&&!guest){ if(emcon()){ ship.def.ecm=false; ship.link=false; } if(ship.dead[1]){ ship.link=false; for(const c of contacts) TK(c).esm=null; }
+    Sim.stepWorld(WORLD,rdt,sdt); // one unit list: motion (scaled dt), AI, sensors, defense, missiles
+    Sim.linkShare(ship,ally,contacts); const lk=ship.link&&!ship.dead[1]&&!ally.dead[1]; for(const c of contacts) c.esmA=lk?(Sim.trkOf(ally,c).esm||null):null;
+    Sim.fixStep(ship.fixes,ship,ally,contacts,esm,ally.esmS,rdt); Sim.aiFixStep(contacts,rdt); } // FIX markers and LINK are not in the world step yet
   if(guest){ gMove(ship,rdt,ship.sunk&&ship.wreck); gMove(ally,rdt,ally.wreck); for(const m of missiles) gMove(m,rdt); const sd=Sim.CFG.DEFENSE.SAM.SPEED*rdt*gTs/3600; for(const q of ship.def.sams.concat(ally.def.sams,gFoeSams)){ const r=(q.hdg||0)*Math.PI/180; q.x+=Math.sin(r)*sd; q.y+=Math.cos(r)*sd; } radar.ang=Sim.norm(radar.ang+360/Sim.CFG.RADAR.PERIOD*rdt); radar.t+=rdt; esm.t+=rdt; ally.esmS.t+=rdt; if(ship.fire) ship.fire.t=Math.max(0,ship.fire.t-rdt); ship.def.cd=Math.max(0,ship.def.cd-rdt); } // between views the clocks keep running (every view overwrites them with the host's)
   blink=Math.floor(t/300)%2; S.lock=!ship.wreck&&missiles.some(m=>m.tid==="own"&&!m.state); // enemy missile aimed at us
   $("top").style.borderBottom=S.lock?"4px solid "+(blink?"#fff":"#ff3b3b"):"";

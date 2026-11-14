@@ -421,6 +421,15 @@
         if (u.ctl === "human") place(u, t, k, list.length); out.push({ id, team: t, type: e.type, pids: e.pids.slice(), unit: u }); }); }
     return { units: out.map(o => o.unit), ships: out };
   }
+  // Offline default scenario on top of a solo 2v2 buildMatch: the player at the origin (no id -> key "own", as the UI expects), the escort ally "A1" 15 nm abeam, enemies 1 and 2 placed like the field-tested scenario (due north 40 nm, bearing 070 at 38 nm) with a patrol box each.
+  function offlineScenario(match) {
+    const U = match.units, me = U.find(isShip), al = U.find(u => u !== me && u.team === me.team), en = U.filter(u => u.team !== me.team), spots = [[0, 40], [70, 38]];
+    delete me.id; me.x = 0; me.y = 0; me.hdg = me.ordHdg = 0;
+    al.id = "A1"; al.escort = true; al.ai.wp = null; al.x = CFG.ALLY.OFFSET; al.y = 0; al.hdg = al.ordHdg = 0; al.spd = 0;
+    en.forEach((c, i) => { const [b, R] = spots[i], r = b * Math.PI / 180, x = Math.sin(r) * R, y = Math.cos(r) * R;
+      c.id = i + 1; c.x = x; c.y = y; c.hdg = c.ordHdg = 90; c.ai.wp = [[x + 10, y + 2], [x + 10, y + 14], [x - 10, y + 14], [x - 10, y + 2]]; });
+    return match;
+  }
   // ---- world: one list of units drives the whole match (humans and AI alike) ----
   // newWorld(match) -> { units, missiles, ref }; ref = the reference human ship (carries the missile counters/uids and banners for non-human targets).
   const newWorld = (match, missiles) => { const units = match.units, ref = units.find(isShip) || units[0]; return { units, missiles: missiles || [], ref }; };
@@ -619,6 +628,6 @@
       out.push({ pid, reply: r.ok ? (r.msg ? { t: "ack", seq, msg: r.msg } : { t: "ack", seq }) : { t: "err", seq, msg: r.msg || "Refused." } }); } // ack may carry the command's message (e.g. LINK / SAM / decoy result)
     return out;
   }
-  const api = { newWorld, stepWorld, buildMatch, newInbox, enqueue, drain, dropPlayer, seatsOf, viewFor, linkShare, command, trkOf, reloadStep, newTrk, toggleLink, newAlly, resetAlly, allyStep, stepUnit, launchMissile, rays, fixStep, aiFixStep, initEnemy, resetEnemy, aiDefStep, aiSamMove, allyDefStep, allySamMove, resetAi, aiIdTime, aiFireStep, newAi, aiStep, ciwsStep, ecmStep, toggleEcm, deployDecoy, launchSam, setCiws, stepDefense, reap, defCheck, CFG, norm, diff, newShip, step, newRadar, newContact, pDetect, radarStep, setTag, stepContact, newEsm, pEsm, esmStep, startIdentify, cancelIdentify, identifyStep, identifyTime, fireCheck, startFire, cancelFire, fireStep, stepMissiles, hitShip, debugMissile, resetShip, STN };
+  const api = { newWorld, stepWorld, buildMatch, offlineScenario, newInbox, enqueue, drain, dropPlayer, seatsOf, viewFor, linkShare, command, trkOf, reloadStep, newTrk, toggleLink, newAlly, resetAlly, allyStep, stepUnit, launchMissile, rays, fixStep, aiFixStep, initEnemy, resetEnemy, aiDefStep, aiSamMove, allyDefStep, allySamMove, resetAi, aiIdTime, aiFireStep, newAi, aiStep, ciwsStep, ecmStep, toggleEcm, deployDecoy, launchSam, setCiws, stepDefense, reap, defCheck, CFG, norm, diff, newShip, step, newRadar, newContact, pDetect, radarStep, setTag, stepContact, newEsm, pEsm, esmStep, startIdentify, cancelIdentify, identifyStep, identifyTime, fireCheck, startFire, cancelFire, fireStep, stepMissiles, hitShip, debugMissile, resetShip, STN };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.Sim = api;
 })(typeof self !== "undefined" ? self : this);

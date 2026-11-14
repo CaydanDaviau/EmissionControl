@@ -773,3 +773,12 @@ test("world: stepWorld runs a 2-human + AI match (moves, sensors, AI, missiles) 
   const rb = Sim.trkOf(A, B); assert.ok(rb.esm, "A's ESM hears B's radar across the 40 nm gap");
   assert.ok(Sim.trkOf(B, A).esm, "B hears A as well");
 });
+
+test("offlineScenario: player (key own), escort ally A1 and enemies 1,2 run under stepWorld", () => {
+  const L = require("../lobby.js"), r = L.newRoom({ name: "o", mode: "solo", max: 4 }, "me", "P"); L.move(r, "me", "A");
+  const m = Sim.offlineScenario(Sim.buildMatch(r, 20261114)), W = Sim.newWorld(m), me = W.ref, al = W.units.find(u => u.id === "A1"), en = W.units.filter(u => u.team === "red");
+  assert.equal(me.id, undefined); assert.equal(W.units.length, 4); assert.deepEqual(en.map(e => e.id), [1, 2]); assert.ok(al.escort);
+  assert.ok(Math.abs(en[0].y - 40) < 1e-6 && Math.abs(Math.hypot(en[1].x, en[1].y) - 38) < 1e-6);
+  me.ordSpd = 15; for (let i = 0; i < 600; i++) Sim.stepWorld(W, 0.1, 0.1); // 60 s
+  assert.ok(me.y > 0.1); assert.ok(al.spd > 0); assert.ok(Math.abs(al.x - me.x) < 30);
+});
