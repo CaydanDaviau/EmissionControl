@@ -612,7 +612,7 @@ function sweepUi(){ $("sweepB").textContent=sweepOn?"On":"Off"; $("sweepB").clas
 $("startB").onclick=()=>{ $("startB").textContent="RESUME"; showMenu(false); };
 $("menuB").onclick=()=>showMenu(true);
 let mpS=null; const mpLog=s=>{ $("mpLog").textContent=s; };
-let mpRun=false, mpRoom=null, mpSeq=0, mpTick=0; const mpInbox=Sim.newInbox(), mpOpen=new Set();
+const mpNames={}; let mpRun=false, mpRoom=null, mpSeq=0, mpTick=0; const mpInbox=Sim.newInbox(), mpOpen=new Set();
 const mpUnits=()=>[ship,ally].concat(contacts), mpCtx=()=>({radar:ship.radar,contacts:all(),missiles});
 // ---- guest: the real UI runs on shadow objects (ship / contacts / missiles / ally) filled from the host's filtered view; every action goes to the host as a cmd message ----
 function applyView(v){
@@ -649,7 +649,7 @@ function guestErr(msg,seq){ guestAck({seq,msg}); $("banner").style.color="#ffd83
 const mpCmd=(type,args)=>{ if(mpS&&mpS.role==="guest") mpS.send("host",{t:"cmd",seq:++mpSeq,type,args}); };
 setInterval(()=>{ if(!mpS||mpS.role!=="host") return; const r=Sim.drain(mpInbox,()=>ship,mpCtx()); for(const x of r) mpS.send(x.pid,x.reply); },100);
 setInterval(()=>{ if(!mpS||mpS.role!=="host"||!mpRun) return; mpTick++; const us=mpUnits(); for(const id of mpOpen) mpS.send(id,{t:"view",tick:mpTick,ts:S.paused?0:TS[S.ts],v:Sim.viewFor(us,missiles,ship,id)}); },500);
-const mpH={ onStatus:mpLog, onPeer:(id,n,s)=>{ if(s==="open"){ mpOpen.add(id); if(mpRoom&&!mpRun){ Lobby.add(mpRoom,id,n); roomSend(); roomRender(Lobby.view(mpRoom,"host")); } $("mpPing").style.display=""; $("mpLeave").style.display=""; } if(s==="closed"){ mpOpen.delete(id); Sim.dropPlayer(ship,id); if(mpRoom){ Lobby.remove(mpRoom,id); roomSend(); roomRender(Lobby.view(mpRoom,"host")); } }
+const mpH={ onStatus:mpLog, onPeer:(id,n,s)=>{ if(n) mpNames[id]=n; n=n||mpNames[id]||"Player"; if(s==="open"){ mpOpen.add(id); if(mpRoom&&!mpRun){ Lobby.add(mpRoom,id,n); roomSend(); roomRender(Lobby.view(mpRoom,"host")); } $("mpPing").style.display=""; $("mpLeave").style.display=""; } if(s==="closed"){ mpOpen.delete(id); Sim.dropPlayer(ship,id); if(mpRoom){ Lobby.remove(mpRoom,id); roomSend(); roomRender(Lobby.view(mpRoom,"host")); } }
   mpLog((mpS&&mpS.role==="host"?"Room "+mpS.code+"\nPlayers connected: "+mpOpen.size+"\nPress BACK, then START to run the game.":id+": "+s)); },
   onMsg:(from,m)=>{ if(mpS&&mpS.role==="host"){ if(m&&m.t==="cmd") Sim.enqueue(mpInbox,from,m); } else if(m.t==="room") roomRender(m.room); else if(m.t==="start"){ $("room").classList.remove("show"); } else if(m.t==="view") guestView(m.v,m.ts); else if(m.t==="err") guestErr(m.msg,m.seq); else if(m.t==="ack") guestAck(m); }, onRtt:(id,ms)=>mpLog("Ping "+id+": "+ms+" ms"), onEnd:r=>{ if(guest){ try{ sessionStorage.setItem("emcon.mp","Disconnected: "+r); }catch(e){} location.reload(); return; } mpLog("Disconnected: "+r); mpS=null; mpOpen.clear(); $("mpPing").style.display="none"; $("mpLeave").style.display="none"; } };
 const mpName=()=>$("mpName").value.trim()||"Player";
