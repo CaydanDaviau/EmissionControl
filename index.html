@@ -707,7 +707,7 @@ function roomCrew(rm,host){ const body=$("rmBody"), me=rm.you, nameOf=id=>{ cons
         card.appendChild(c); }
       sec.appendChild(card); });
     body.appendChild(sec); } }
-function shipSelShow(rm){ const sh=rm.ships[rmShip.team][rmShip.idx], el=$("ssList"); el.innerHTML=""; for(const t of Lobby.SHIP_TYPES){ const b=document.createElement("button"); b.style.width="260px"; b.textContent=t.name; b.classList.toggle("on",t.id===sh.type); b.onclick=()=>{ roomAct({a:"type",team:rmShip.team,ship:rmShip.idx,type:t.id}); $("shipSel").classList.remove("show"); }; el.appendChild(b); } $("shipSel").classList.add("show"); }
+function shipSelShow(rm){ const sh=rmShip.pid?rm.players.find(p=>p.id===rmShip.pid)||{}:rm.ships[rmShip.team][rmShip.idx], el=$("ssList"); el.innerHTML=""; for(const t of Lobby.SHIP_TYPES){ const b=document.createElement("button"); b.style.width="260px"; b.textContent=t.name; b.classList.toggle("on",t.id===sh.type); b.onclick=()=>{ roomAct(rmShip.pid?{a:"ptype",id:rmShip.pid,type:t.id}:{a:"type",team:rmShip.team,ship:rmShip.idx,type:t.id}); $("shipSel").classList.remove("show"); }; el.appendChild(b); } $("shipSel").classList.add("show"); }
 $("ssBack").onclick=()=>$("shipSel").classList.remove("show");
 function roomRender(rm){ rmLast=rm; $("mp").classList.remove("show"); $("room").classList.add("show"); const host=mpS&&mpS.role==="host";
   $("rmTitle").textContent=rm.name; $("rmInfo").textContent=(rm.mode==="solo"?"Solo ship":"Crew")+" \u00b7 "+(rm.pvp==="pve"?"PvE":"PvP")+" \u00b7 "+rm.players.length+"/"+rm.max+" players"+(rm.mode==="solo"?" \u00b7 max "+Lobby.cap(rm)+" per team":"");
@@ -715,6 +715,7 @@ function roomRender(rm){ rmLast=rm; $("mp").classList.remove("show"); $("room").
   for(const [t,label] of [["A","TEAM A"],["S","SPECTATORS"],["B","TEAM B"]]){ const ps=rm.players.filter(p=>p.team===t), sec=document.createElement("div"); sec.className="rsec"; const h=document.createElement("h3"); h.innerHTML="<span></span><span></span>"; h.children[0].textContent=label; h.children[1].textContent=ps.length; sec.appendChild(h);
     if(!ps.length){ const n=document.createElement("div"); n.className="none"; n.textContent=t==="S"?"Nobody waiting":"Empty slots are filled by AI ships"; sec.appendChild(n); }
     for(const p of ps){ const row=document.createElement("div"); row.className="rp"; const nm=document.createElement("span"); nm.textContent=p.name+(p.id==="host"?" (host)":""); if(p.id===rm.you) nm.className="me"; row.appendChild(nm);
+      { const bx0=document.createElement("span"); const ty=Lobby.SHIP_TYPES.find(x=>x.id===p.type); const tn=document.createElement("small"); tn.textContent=(ty?ty.name:"")+" "; bx0.appendChild(tn); if(host||p.id===rm.you){ const b=document.createElement("button"); b.textContent="SHIP"; b.onclick=()=>{ rmShip={pid:p.id}; shipSelShow(rm); }; bx0.appendChild(b); } row.appendChild(bx0); }
       if(host){ const bx=document.createElement("span"); const mk=(txt,to)=>{ const b=document.createElement("button"); b.textContent=txt; b.onclick=()=>roomMove(p.id,to); bx.appendChild(b); };
         if(t==="S"){ mk("\u25c0","A"); mk("\u25b6","B"); } else mk(t==="A"?"\u25b6":"\u25c0","S"); row.appendChild(bx); }
       sec.appendChild(row); }

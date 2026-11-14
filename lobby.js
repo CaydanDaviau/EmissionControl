@@ -5,14 +5,14 @@
   const CREW = 4, MAX_SHIPS = 8;
   const mkShip = () => ({ type: SHIP_TYPES[0].id, cap: null, roles: [null, null, null, null], ready: false });
   const newRoom = (o, hostId, hostName) => { const mode = o.mode === "solo" ? "solo" : "crew";
-    return { name: o.name, mode, pvp: o.pvp === "pve" ? "pve" : "pvp", max: o.max || 4, scenario: o.scenario || "default", players: [{ id: hostId, name: hostName, team: "S", ship: null }], ships: mode === "crew" ? { A: [mkShip()], B: [mkShip()] } : null }; }; // crew mode: ships per side (empty ship = AI)
+    return { name: o.name, mode, pvp: o.pvp === "pve" ? "pve" : "pvp", max: o.max || 4, scenario: o.scenario || "default", players: [{ id: hostId, name: hostName, team: "S", ship: null, type: SHIP_TYPES[0].id }], ships: mode === "crew" ? { A: [mkShip()], B: [mkShip()] } : null }; }; // crew mode: ships per side (empty ship = AI)
   const cap = r => r.mode === "solo" ? Math.ceil(r.max / 2) : Infinity; // solo ship: one player per ship, so a team holds at most half the room (5v5 at 10)
   const find = (r, id) => r.players.find(p => p.id === id);
   const crewOf = (r, team, i) => r.players.filter(p => p.team === team && p.ship === i).sort((a, b) => (a.at || 0) - (b.at || 0)); // in the order they were placed (the first one is the default captain)
   function fixShip(r, team, i) { const sh = r.ships && r.ships[team][i]; if (!sh) return; const m = crewOf(r, team, i).map(p => p.id); // keep captain/roles pointing at members
     if (!m.includes(sh.cap)) sh.cap = m[0] || null; sh.roles = sh.roles.map(x => (m.includes(x) ? x : null)); if (!m.length) sh.ready = false; }
   const fixAll = r => { if (r.ships) for (const t of ["A", "B"]) r.ships[t].forEach((_, i) => fixShip(r, t, i)); };
-  function add(r, id, name) { if (find(r, id)) return true; if (r.players.length >= r.max) return false; r.players.push({ id, name, team: "S", ship: null }); return true; }
+  function add(r, id, name) { if (find(r, id)) return true; if (r.players.length >= r.max) return false; r.players.push({ id, name, team: "S", ship: null, type: SHIP_TYPES[0].id }); return true; }
   const remove = (r, id) => { r.players = r.players.filter(p => p.id !== id); fixAll(r); };
   function move(r, id, to) { const p = find(r, id); if (!p) return { ok: false, msg: "No such player." }; if (!["A", "S", "B"].includes(to)) return { ok: false, msg: "Bad team." };
     if (r.mode === "crew") return { ok: false, msg: "Crew mode: assign players to ships." };
@@ -36,11 +36,12 @@
       case "captain": { if (!host) return NO("Host only."); if (!sh) return NO("No such ship."); if (!crewOf(r, msg.team, msg.ship).some(p => p.id === msg.id)) return NO("Not on that ship."); sh.cap = msg.id; return OK; }
       case "type": { if (!capOrHost()) return NO("Captain only."); if (!SHIP_TYPES.some(t => t.id === msg.type)) return NO("Unknown ship."); sh.type = msg.type; sh.ready = false; return OK; }
       case "role": { if (!capOrHost()) return NO("Captain only."); if (!(msg.stn >= 0 && msg.stn < 4)) return NO("Bad station."); if (msg.id !== null && !crewOf(r, msg.team, msg.ship).some(p => p.id === msg.id)) return NO("Not on that ship."); sh.roles[msg.stn] = msg.id; sh.ready = false; return OK; }
+      case "ptype": { if (r.mode !== "solo") return NO("Not available."); const p = find(r, msg.id); if (!p) return NO("No such player."); if (!host && from !== p.id) return NO("Only your own ship."); if (!SHIP_TYPES.some(t => t.id === msg.type)) return NO("Unknown ship."); p.type = msg.type; return OK; }
       case "ready": { if (!sh || sh.cap !== from) return NO("Captain only."); if (msg.on && !crewOf(r, msg.team, msg.ship).length) return NO("Empty ship."); sh.ready = !!msg.on; return OK; }
     }
     return NO("Unknown action.");
   }
-  const view = (r, you) => ({ name: r.name, mode: r.mode, pvp: r.pvp, max: r.max, scenario: r.scenario, you, players: r.players.map(p => ({ id: p.id, name: p.name, team: p.team, ship: p.ship, at: p.at || 0 })), ships: r.ships ? { A: r.ships.A.map(s => ({ ...s, roles: s.roles.slice() })), B: r.ships.B.map(s => ({ ...s, roles: s.roles.slice() })) } : null });
+  const view = (r, you) => ({ name: r.name, mode: r.mode, pvp: r.pvp, max: r.max, scenario: r.scenario, you, players: r.players.map(p => ({ id: p.id, name: p.name, team: p.team, ship: p.ship, at: p.at || 0, type: p.type || SHIP_TYPES[0].id })), ships: r.ships ? { A: r.ships.A.map(s => ({ ...s, roles: s.roles.slice() })), B: r.ships.B.map(s => ({ ...s, roles: s.roles.slice() })) } : null });
   const api = { newRoom, cap, add, remove, move, view, find, act, autoRoles, crewOf, SHIP_TYPES, ROLES, CREW, MAX_SHIPS };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.Lobby = api;
 })(typeof self !== "undefined" ? self : this);

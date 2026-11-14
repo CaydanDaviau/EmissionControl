@@ -719,3 +719,15 @@ test("lobby crew: default captain = first player placed on the ship", () => {
   L.act(r, "host", { a: "assign", id: "g1", team: "B", ship: 0 }); L.act(r, "host", { a: "assign", id: "host", team: "B", ship: 0 });
   assert.equal(r.ships.B[0].cap, "g1"); assert.deepEqual(L.crewOf(r, "B", 0).map(p => p.id), ["g1", "host"]);
 });
+
+test("lobby solo: each player picks their own ship type; host may set anyone; guests only themselves; crew mode refuses", () => {
+  const L = require("../lobby.js"), r = L.newRoom({ name: "R", mode: "solo", max: 4 }, "host", "H"); L.add(r, "g1", "A"); L.add(r, "g2", "B");
+  assert.equal(L.find(r, "g1").type, L.SHIP_TYPES[0].id);
+  assert.ok(L.act(r, "g1", { a: "ptype", id: "g1", type: "ddg51" }).ok);
+  assert.ok(!L.act(r, "g1", { a: "ptype", id: "g2", type: "ddg51" }).ok);
+  assert.ok(L.act(r, "host", { a: "ptype", id: "g2", type: "ddg51" }).ok);
+  assert.ok(!L.act(r, "g1", { a: "ptype", id: "g1", type: "nope" }).ok);
+  assert.equal(L.view(r, "g1").players.find(p => p.id === "g1").type, "ddg51");
+  const c = L.newRoom({ name: "C", mode: "crew", max: 4 }, "host", "H");
+  assert.ok(!L.act(c, "host", { a: "ptype", id: "host", type: "ddg51" }).ok);
+});
