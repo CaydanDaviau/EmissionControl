@@ -5,19 +5,19 @@
     FLANK: 30,     // kt, Arleigh Burke top speed (tunable)
     CRUISE: 15,    // kt, all surface ships (formation speed)
     REVERSE: -8,   // kt, astern (tunable)
-    ACCEL: 0.5,    // kt per sim-second
+    ACCEL: 1,    // kt per sim-second
     TURN: 3,       // deg per sim-second at full steering speed
     TURN_FULL_AT: 8, // kt at which turn rate is 100%
     TURN_MIN: 0.2, // fraction of turn rate left when slow/stopped
     // Burke radar (per-ship data later)
-    RADAR: { HORIZON: 32, RANGE: 70, H_ANT: 100, PERIOD: 4, RCS_REF: 10000, Q_HIT: 0.35, Q_MISS: 0.08, Q_DROP: 0.10 },
+    RADAR: { HORIZON: 48, RANGE: 70, H_ANT: 100, PERIOD: 4, RCS_REF: 10000, Q_HIT: 0.35, Q_MISS: 0.08, Q_DROP: 0.10 },
     // ESM (passive): hears emitting radars, bearing only. Own-ship data, per-ship later.
     // Detect range = RANGE_FACTOR * emitter radar range. No horizon cap for now (user's choice; H_ANT and DUCT are unused).
     ESM: { H_ANT: 100, RANGE_FACTOR: 2, DUCT: 1.3, INTERVAL: 2, SIGMA: 10, HOLD: 15 },
     // Identify: needs a continuous radar track (real time, like all sensors). Takes longer at long range and for low-RCS (stealthy) contacts. Track lost = reset to 0.
     // Weapons (game data; per-ship loadouts later). range nm, speed kt, turn deg/s
-    WEAPONS: { ssm: { name: "SSM", model: "RGM-84", range: 70, speed: 480, turn: 10, dmg: "SSM", seeker: 5 },
-      asm: { name: "ASM", model: "LRASM", range: 150, speed: 500, turn: 8, dmg: "ASM", seeker: 10 } },
+    WEAPONS: { ssm: { name: "SSM", model: "RGM-84", range: 70, speed: 408, turn: 10, dmg: "SSM", seeker: 5 },
+      asm: { name: "ASM", model: "LRASM", range: 150, speed: 602, turn: 8, dmg: "ASM", seeker: 10 } },
     // Damage is per station (index 0..3 = NAVIGATION, SENSORS, WEAPONS, DEFENSE). second = chance a hit destroys a 2nd station; nav = can hit NAVIGATION.
     // Ship is destroyed when 1 or fewer stations are left. Destroyed ship decelerates by DRIFT_DECEL (kt/s), then stays as a wreck.
     DAMAGE: { P_HIT: 0.9, DRIFT_DECEL: 1, DEBUG_DIST: 20, SSM: { second: 0.15, nav: false }, ASM: { second: 0.55, nav: true } },
