@@ -638,3 +638,15 @@ test("inbox: seats still enforced through the queue", () => {
   const r = Sim.drain(ib, () => ship, ctx).map(x => x.reply);
   assert.equal(r[0].t, "ack"); assert.equal(r[1].t, "err"); assert.match(r[1].msg, /NAVIGATION/);
 });
+
+test("viewFor: ESM-only record appears (seen=false), friends and SAMs filtered by team/horizon", () => {
+  const ship = Sim.newShip(), c = mkEn(20), al = Sim.newAlly(15, 0); c.id = 7; c.x = 20; c.y = 0;
+  const T = Sim.trkOf(ship, c); T.esm = { brg: 90, t: 1 }; T.esmNo = 1; // heard, never seen by radar
+  c.def.sams.push({ x: 20, y: 0, hdg: 0 }); const far = mkEn(90); far.id = 8; far.def.sams.push({ x: 90, y: 0, hdg: 0 });
+  al.def.sams.push({ x: 15, y: 1, hdg: 0 }); ship.def.sams.push({ x: 0, y: 1, hdg: 0 });
+  const v = Sim.viewFor([ship, al, c, far], [], ship, null);
+  assert.equal(v.tracks.length, 1); assert.equal(v.tracks[0].seen, false); assert.equal(v.tracks[0].esm.brg, 90);
+  assert.equal(v.friends.length, 1); assert.equal(v.friends[0].id, "A1");
+  assert.equal(v.sams.length, 3, "own, ally, enemy inside horizon; far enemy hidden");
+  assert.equal(v.sams.filter(s => s.mine).length, 2);
+});
