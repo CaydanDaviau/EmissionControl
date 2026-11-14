@@ -840,3 +840,8 @@ test("viewFor: friends carry ESM clock/sensor state; tracks carry every linked f
   const v = Sim.viewFor(M.units, [], a1, null); assert.equal(v.friends.length, 2); assert.ok(v.friends.every(f => typeof f.et === "number" && f.sensDead === false));
   assert.equal(v.tracks.find(t => t.id === en.id).esmF.length, 2);
 });
+test("spectator view: no station held, even on an AI unit", () => {
+  const L = require("../lobby.js"), r = L.newRoom({ name: "R", mode: "solo", max: 4 }, "host", "H"); L.move(r, "host", "A");
+  const M = Sim.buildMatch(r, 2), ai = M.units.find(u => u.ctl === "ai"), v = Sim.viewFor(M.units, [], ai, "spec1", true);
+  assert.deepEqual(v.own.holds, [false, false, false, false]); assert.equal(Sim.unitOf({ units: M.units }, "spec1"), null);
+});

@@ -269,13 +269,13 @@ const TS=[1,5,20];
 const missiles=[]; // missiles in flight (shared with the world)
 let SPO={a:2,b:2,ship:"ddg51"}; try{ Object.assign(SPO,JSON.parse(localStorage.getItem("emcon.spopt")||"{}")); }catch(e){} SPO.a=Math.max(1,Math.min(5,SPO.a|0||2)); SPO.b=Math.max(1,Math.min(5,SPO.b|0||2));
 const room0=Lobby.newRoom({name:"offline",mode:"solo",max:10},"me","Player"); Lobby.move(room0,"me","A"); room0.counts={A:SPO.a,B:SPO.b}; room0.players[0].type=SPO.ship; // offline = a solo room on Open sea: you + (a-1) AI allies vs b AI enemies (singleplayer options screen)
-const wMissiles=[], WORLD=Sim.newWorld(Sim.offlineScenario(Sim.buildMatch(room0,20261114)),wMissiles), wShip=WORLD.ref; delete wShip.seats; // SERVER side: the world (sim). The UI never touches these; it reads views of it (below)
-const wContacts=WORLD.units.filter(u=>u.team!==wShip.team), wAllies=WORLD.units.filter(u=>u!==wShip&&u.team===wShip.team), localPid="me"; // localPid = the host player's id in the room
+const wMissiles=[]; let WORLD=Sim.newWorld(Sim.offlineScenario(Sim.buildMatch(room0,20261114)),wMissiles), wShip=WORLD.ref; delete wShip.seats; // SERVER side: the world (sim). The UI never touches these; it reads views of it (below)
+let wContacts=WORLD.units.filter(u=>u.team!==wShip.team), wAllies=WORLD.units.filter(u=>u!==wShip&&u.team===wShip.team), localPid="me"; // localPid = the host player's id in the room
 const ship=Sim.newShip(); // CLIENT side: shadow objects the UI reads, filled from viewFor (same code for the host's own screen and for guests)
 const LAT0=41+11.295/60, LON0=21+26.496/60;
 const TK=c=>c.marker?c:Sim.trkOf(ship,c); // the player's track record for a contact (fix markers carry their own fields)
 const contacts=[], allies=[], gA=new Map(), drawAllies=()=>allies, all=()=>contacts.concat(ship.fixes); // ship.fixes = ESM crossing markers (5 s)
-const cid=v=>/^\d+$/.test(String(v))?+v:v, lbl=c=>c.marker?"FIX E"+TK(c).esmNo:String(c.id).padStart(4,"0"); 
+const cid=v=>/^\d+$/.test(String(v))?+v:v, lbl=c=>c.marker?"FIX E"+TK(c).esmNo:/^\d+$/.test(String(c.id))?String(c.id).padStart(4,"0"):String(c.id).toUpperCase(); 
 const radar=ship.radar, esm=ship.esmS;
 let sweepOn=true; try{ sweepOn=localStorage.getItem("emcon.sweep")!=="0"; }catch(e){}
 const S={paused:true,ri:4,rings:true,labels:true,grid:true,sel:null,hup:false,ts:0,ws:null};
@@ -383,7 +383,7 @@ function draw(){
     g.save(); const dd=ally.sunk; g.strokeStyle=dd?"#ff4a4a":COL.ally; g.fillStyle=g.strokeStyle; g.lineWidth=1.6; g.beginPath();
     if(ally.wreck){ g.moveTo(sx-7,sy-7); g.lineTo(sx+7,sy+7); g.moveTo(sx+7,sy-7); g.lineTo(sx-7,sy+7); } else g.arc(sx,sy,5.5,0,Math.PI*2); g.stroke(); // destroyed: red circle while drifting, red X as a wreck
     if(!ally.sunk){ const a=A(ally.hdg); g.beginPath(); g.moveTo(sx+Math.cos(a)*5,sy+Math.sin(a)*5); g.lineTo(sx+Math.cos(a)*20,sy+Math.sin(a)*20); g.stroke(); } // ally heading line
-    if(S.labels){ g.textAlign="left"; g.textBaseline="middle"; g.fillText(ally.wreck?ally.id+" WRECK":String(ally.id||"A1"),sx+11,sy); } g.restore(); } }
+    if(S.labels){ g.textAlign="left"; g.textBaseline="middle"; g.fillText(ally.wreck?String(ally.id).toUpperCase()+" WRECK":String(ally.id||"A1").toUpperCase(),sx+11,sy); } g.restore(); } }
   // own missiles: small triangle pointing along heading + velocity vector
   for(const m of missiles){ const dx=m.x-ship.x, dy=m.y-ship.y, r=Math.hypot(dx,dy); if(r>range) continue;
     const b=Math.atan2(dx,dy)-rot*Math.PI/180, sx=cx+Math.sin(b)*r*px, sy=cy-Math.cos(b)*r*px, a=A(m.hdg), ux=Math.cos(a), uy=Math.sin(a);
@@ -633,7 +633,6 @@ $("spGo").onclick=()=>{ try{ localStorage.setItem("emcon.spopt",JSON.stringify(S
 $("menuB").onclick=()=>showMenu(true);
 let mpS=null; const mpLog=s=>{ $("mpLog").textContent=s; };
 const mpNames={}; let mpRun=false, mpRoom=null, mpSeq=0, mpTick=0; const mpInbox=Sim.newInbox(), mpOpen=new Set();
-const mpUnits=()=>WORLD.units, mpCtx=()=>wCtx(wShip);
 // ---- guest: the real UI runs on shadow objects (ship / contacts / missiles / ally) filled from the host's filtered view; every action goes to the host as a cmd message ----
 function applyView(v){
   const o=v.own, oh=ship.ordHdg, os=ship.ordSpd, now=performance.now();
@@ -670,9 +669,9 @@ function guestAck(m){ const t=gPend[m.seq]; delete gPend[m.seq]; if(!m.msg) retu
 function guestErr(msg,seq){ guestAck({seq,msg}); $("banner").style.color="#ffd83a"; $("banner").textContent=msg; bannerT=4; } // the host refused a command (e.g. "You do not hold BRIDGE.")
 
 const mpCmd=(type,args)=>{ if(mpS&&mpS.role==="guest") mpS.send("host",{t:"cmd",seq:++mpSeq,type,args}); };
-setInterval(()=>{ if(!mpS||mpS.role!=="host") return; const r=Sim.drain(mpInbox,()=>wShip,mpCtx); for(const x of r) mpS.send(x.pid,x.reply); },100);
-setInterval(()=>{ if(!mpS||mpS.role!=="host"||!mpRun) return; mpTick++; const us=mpUnits(); for(const id of mpOpen) mpS.send(id,{t:"view",tick:mpTick,ts:S.paused?0:TS[S.ts],v:Sim.viewFor(us,wMissiles,wShip,id)}); },500);
-const mpH={ onStatus:mpLog, onPeer:(id,n,s)=>{ if(n) mpNames[id]=n; n=n||mpNames[id]||"Player"; if(s==="open"){ mpOpen.add(id); if(mpRoom&&!mpRun){ Lobby.add(mpRoom,id,n); roomSend(); roomRender(Lobby.view(mpRoom,"host")); } $("mpPing").style.display=""; $("mpLeave").style.display=""; } if(s==="closed"){ mpOpen.delete(id); Sim.dropPlayer(wShip,id); if(mpRoom){ Lobby.remove(mpRoom,id); roomSend(); roomRender(Lobby.view(mpRoom,"host")); } }
+setInterval(()=>{ if(!mpS||mpS.role!=="host") return; const r=Sim.drain(mpInbox,pid=>Sim.unitOf(WORLD,pid),wCtx); for(const x of r) mpS.send(x.pid,x.reply); },100);
+setInterval(()=>{ if(!mpS||mpS.role!=="host"||!mpRun) return; mpTick++; for(const id of mpOpen) mpS.send(id,{t:"view",tick:mpTick,ts:S.paused?0:TS[S.ts],v:viewOf(id)}); },500);
+const mpH={ onStatus:mpLog, onPeer:(id,n,s)=>{ if(n) mpNames[id]=n; n=n||mpNames[id]||"Player"; if(s==="open"){ mpOpen.add(id); if(mpRoom&&!mpRun){ Lobby.add(mpRoom,id,n); roomSend(); roomRender(Lobby.view(mpRoom,"host")); } $("mpPing").style.display=""; $("mpLeave").style.display=""; } if(s==="closed"){ mpOpen.delete(id); { const u=Sim.unitOf(WORLD,id); if(u) Sim.dropPlayer(u,id); }; if(mpRoom){ Lobby.remove(mpRoom,id); roomSend(); roomRender(Lobby.view(mpRoom,"host")); } }
   mpLog((mpS&&mpS.role==="host"?"Room "+mpS.code+"\nPlayers connected: "+mpOpen.size+"\nPress BACK, then START to run the game.":id+": "+s)); },
   onMsg:(from,m)=>{ if(mpS&&mpS.role==="host"){ if(m&&m.t==="cmd") Sim.enqueue(mpInbox,from,m); else if(m&&m.t==="rm"&&mpRoom&&!mpRun){ const r=Lobby.act(mpRoom,from,m.act); if(!r.ok) mpS.send(from,{t:"rmerr",msg:r.msg}); roomSend(); roomRender(Lobby.view(mpRoom,"host")); } } else if(m.t==="room") roomRender(m.room); else if(m.t==="rmerr"){ rmErr=m.msg; if(rmLast) roomRender(rmLast); } else if(m.t==="start"){ $("room").classList.remove("show"); } else if(m.t==="view") guestView(m.v,m.ts); else if(m.t==="err") guestErr(m.msg,m.seq); else if(m.t==="ack") guestAck(m); }, onRtt:(id,ms)=>mpLog("Ping "+id+": "+ms+" ms"), onEnd:r=>{ if(remote){ try{ sessionStorage.setItem("emcon.mp","Disconnected: "+r); }catch(e){} location.reload(); return; } mpLog("Disconnected: "+r); mpS=null; mpOpen.clear(); $("mpPing").style.display="none"; $("mpLeave").style.display="none"; } };
 const mpName=()=>$("mpName").value.trim()||"Player";
@@ -743,7 +742,15 @@ function roomRender(rm){ rmLast=rm; $("mp").classList.remove("show"); $("room").
       sec.appendChild(row); }
     body.appendChild(sec); }
   if(rmErr) $("rmInfo").textContent+=" \u00b7 \u26a0 "+rmErr; $("rmStart").style.display=host?"":"none"; }
-$("rmStart").onclick=()=>{ if(!mpS||mpS.role!=="host") return; mpRun=true; for(const id of mpOpen) mpS.send(id,{t:"start"}); $("room").classList.remove("show"); $("startB").click(); }; // temporary: slice 4 replaces this with the 5 s countdown
+function startMatch(){ // the host's server builds the match from the room; every player (host included) then plays through viewOf(pid)
+  if(mpRoom.mode==="crew") Lobby.autoRoles(mpRoom,Math.random);
+  if(!mpRoom.players.some(p=>p.team==="A"||p.team==="B")){ rmErr="Put at least one player on a team."; roomRender(Lobby.view(mpRoom,"host")); return; }
+  const match=Sim.buildMatch(mpRoom,Date.now()%1e9), hu=Sim.unitOf({units:match.units},"host"), hum=match.units.filter(u=>u.ctl==="human");
+  wMissiles.length=0; WORLD=Sim.newWorld(match,wMissiles,hu||hum[0]); wShip=WORLD.ref; wContacts=WORLD.units.filter(u=>u.team!==wShip.team); wAllies=WORLD.units.filter(u=>u!==wShip&&u.team===wShip.team); localPid="host";
+  ship.trk={}; ship.fixes.length=0; ship.linkMsg=""; gC.clear(); gA.clear(); gM.clear(); contacts.length=0; allies.length=0; missiles.length=0; S.sel=null; msel=null; bannerT=0; defMsg=""; remote=false;
+  pumpView(); seenHit=ship.hitSeq||0; seenStrike=ship.strikeSeq||0; applyDmg(); sensUi();
+  mpRun=true; for(const id of mpOpen) mpS.send(id,{t:"start"}); $("room").classList.remove("show"); $("startB").click(); }
+$("rmStart").onclick=()=>{ if(!mpS||mpS.role!=="host"||!mpRoom) return; startMatch(); }; // temporary: slice 4 replaces this with the 5 s countdown
 $("rmLeave").onclick=()=>{ if(mpS){ mpS.close(); mpS=null; } if(remote||!mpRoom){ try{ sessionStorage.setItem("emcon.mp","Left the room."); }catch(e){} location.reload(); return; } mpRoom=null; mpRun=false; mpOpen.clear(); $("room").classList.remove("show"); $("mp").classList.add("show"); mpLog("Left the room."); };
 async function mpJoinBy(o){ if(mpS) mpS.close(); mpLog("Joining..."); try{ mpS=await Net.joinBy(Object.assign({player:mpName()},o),mpH); mpLog("In room "+mpS.code+"\nConnecting to host..."); }catch(e){ mpErr(e); } }
 $("mpJoin").onclick=()=>{ const n=$("mpJName").value.trim(); if(!n){ mpLog("Enter the room name."); return; } mpJoinBy({name:n,password:$("mpJPw").value}); };
@@ -763,7 +770,9 @@ $("dbgR").onclick=()=>{ Sim.resetShip(wShip); wShip.radar.on=true; wMissiles.len
 
 // ---- loop ----
 let last=performance.now(), lastView=0;
-function pumpView(){ if(remote) return; gTs=S.paused?0:TS[S.ts]; applyView(Sim.viewFor(WORLD.units,wMissiles,wShip,localPid)); }
+const specUnit=()=>WORLD.units.find(u=>u.ctl==="human"&&!u.sunk)||WORLD.units.find(u=>u.ctl==="human")||WORLD.units[0]; // a spectator watches the first live human ship (view only)
+function viewOf(pid){ const u=Sim.unitOf(WORLD,pid); return u?Sim.viewFor(WORLD.units,wMissiles,u,pid):Sim.viewFor(WORLD.units,wMissiles,specUnit(),pid,true); }
+function pumpView(){ if(remote) return; gTs=S.paused?0:TS[S.ts]; applyView(viewOf(localPid)); }
 function frame(t){
   const rdt=Math.min(0.1,(t-last)/1000); last=t; let sdt=rdt*TS[S.ts]; // rdt = real time (radar), sdt = scaled (ship motion)
   if(!S.paused&&!remote) Sim.stepWorld(WORLD,rdt,sdt); // SERVER: one unit list: motion (scaled dt), AI, sensors, defense, missiles, team LINK/FIX

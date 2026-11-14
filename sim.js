@@ -612,7 +612,7 @@
   // viewFor(units, missiles, viewer, pid): the ONLY data a client receives (plain JSON, never ground truth): own ship state, the viewer's own track table
   // (last detected positions, no real positions, RCS or hidden side), the viewer's FIX markers, and the missiles it may know about
   // (own team's always; others only if aimed at the viewer or inside the radar horizon).
-  function viewFor(units, missiles, v, pid) {
+  function viewFor(units, missiles, v, pid, spec) { // spec = spectator: the view of unit v, but no station is held (view only)
     const r1 = n => Math.round(n * 100) / 100, me = keyOf(v), T = v.ai ? v.ai.trk : (v.trk || {}), byKey = {};
     for (const u of units) byKey[keyOf(u)] = u;
     const tracks = [], fr = v.link && !(v.dead && v.dead[1]) ? units.find(u => u !== v && u.team === v.team && u.esmS && !(u.dead && u.dead[1])) : null, FT = fr ? (fr.ai ? fr.ai.trk : fr.trk) : null, frs = v.link && !(v.dead && v.dead[1]) ? units.filter(u => u !== v && u.team === v.team && u.esmS && !u.sunk && !(u.dead && u.dead[1])) : []; // fr = the first friend whose ESM bearings LINK shares; frs = all of them
@@ -630,7 +630,7 @@
       if (mine) friends.push({ id: keyOf(u), x: r1(u.x), y: r1(u.y), hdg: r1(u.hdg), spd: r1(u.spd || 0), sunk: !!u.sunk, wreck: !!u.wreck, et: r1(u.esmS ? u.esmS.t : 0), sensDead: !!(u.dead && u.dead[1]) });
       for (const q of (u.def && u.def.sams) || []) { if (!mine && Math.hypot(q.x - v.x, q.y - v.y) > CFG.RADAR.HORIZON) continue; sams.push({ x: r1(q.x), y: r1(q.y), hdg: r1(q.hdg || 0), mine }); } }
     for (const q of v.def.sams || []) sams.push({ x: r1(q.x), y: r1(q.y), hdg: r1(q.hdg || 0), mine: true, own: true, uid: q.uid });
-    return { id: me, team: v.team, friends, sams, own: { x: r1(v.x), y: r1(v.y), hdg: r1(v.hdg), spd: r1(v.spd), ordHdg: r1(v.ordHdg || 0), ordSpd: v.ordSpd || 0, dead: v.dead.slice(), sunk: v.sunk, wreck: v.wreck, holds: pid != null ? seatsOf(v, pid) : (v.holds ? v.holds.slice() : [true, true, true, true]), radarOn: !!(v.radar && v.radar.on), ecm: !!v.def.ecm, link: !!v.link,
+    return { id: me, team: v.team, friends, sams, own: { x: r1(v.x), y: r1(v.y), hdg: r1(v.hdg), spd: r1(v.spd), ordHdg: r1(v.ordHdg || 0), ordSpd: v.ordSpd || 0, dead: v.dead.slice(), sunk: v.sunk, wreck: v.wreck, holds: spec ? [false, false, false, false] : pid != null ? seatsOf(v, pid) : (v.holds ? v.holds.slice() : [true, true, true, true]), radarOn: !!(v.radar && v.radar.on), ecm: !!v.def.ecm, link: !!v.link,
       loadout: v.loadout.map(l => ({ w: l.w, ammo: l.ammo })), def: { decoy: v.def.decoy, sam: v.def.sam, cd: r1(v.def.cd), samCd: r1(v.def.samCd), ciws: v.def.ciws, ciwsOn: v.def.ciwsOn }, fire: v.fire ? { slot: v.fire.slot, tid: v.fire.tid, t: r1(v.fire.t) } : null, fireMsg: v.fireMsg || "", hitMsg: v.hitMsg || "", hitSeq: v.hitSeq || 0, strikeMsg: v.strikeMsg || "", strikeSeq: v.strikeSeq || 0,
       radar: { ang: r1((v.radar && v.radar.ang) || 0), t: r1((v.radar && v.radar.t) || 0) }, esmT: r1(v.esmS ? v.esmS.t : 0), allyEsmT: fr ? r1(fr.esmS.t) : 0 },
       tracks, fixes: (v.fixes || []).map(f => ({ id: f.id, emId: f.emId, esmNo: f.esmNo, px: r1(f.px), py: r1(f.py), t: r1(f.t) })), missiles: ms };
