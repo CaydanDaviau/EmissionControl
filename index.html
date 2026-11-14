@@ -92,6 +92,7 @@ tr.sel{background:#2a2f33}
 #navDeadSec{display:none;color:#ff4a4a;letter-spacing:2px;text-align:center}.navdead #navDeadSec{display:block}
 #banner{position:absolute;left:0;right:0;bottom:6px;text-align:center;pointer-events:none;z-index:10;color:#ff4a4a;font-weight:bold;font-size:15px;text-shadow:0 0 4px #000;display:none}
 .ov button.dbg{width:220px;padding:9px;font-size:12px;color:var(--dim);border-style:dashed}
+body.guest .dbg,body.guest #tsB{display:none}
 @media (max-width:760px){
   #navPage{flex-direction:column}
   #scopeWrap{flex:none;height:min(100vw,305px)}
@@ -219,7 +220,6 @@ tr.sel{background:#2a2f33}
 <button id="mpList">ROOM LIST</button>
 <div id="mpRooms" style="width:220px;font-size:12px;color:var(--dim)"></div>
 <div id="mpLog" style="width:220px;font-size:12px;min-height:60px;white-space:pre-wrap"></div>
-<div id="mpView" style="display:none;width:260px;font-size:11px"><canvas id="gcv" width="520" height="520" style="width:260px;height:260px;display:block;margin:0 0 6px;background:#000"></canvas><div class="stnrow" style="width:260px;margin-bottom:6px"><button data-g="-">RNG -</button><button data-g="+">RNG +</button><button data-g="h" id="gOri">NORTH UP</button></div><pre id="mpTxt" style="margin:0 0 8px;white-space:pre-wrap;color:#ddd"></pre><div class="stnrow" style="width:260px"><button data-s="0">NAV</button><button data-s="1">SENS</button><button data-s="2">WPN</button><button data-s="3">DEF</button></div><div class="stnrow" style="width:260px;margin-top:6px"><button data-v="0">STOP</button><button data-v="15">15 KT</button><button data-v="30">30 KT</button><button data-v="e">EMCON</button></div></div>
 <button id="mpPing" style="display:none">PING</button><button id="mpLeave" style="display:none">LEAVE ROOM</button><button id="mpBack">BACK</button></div>
 <div class="ov" id="settings"><h1>SETTINGS</h1><div class="row"><span class="lbl">Radar sweep</span><button id="sweepB" style="width:100px">On</button></div><button id="backB">BACK</button></div>
 <script src="sim.js"></script>
@@ -259,6 +259,7 @@ const radar=ship.radar, esm=ship.esmS;
 let sweepOn=true; try{ sweepOn=localStorage.getItem("emcon.sweep")!=="0"; }catch(e){}
 const S={paused:true,ri:4,rings:true,labels:true,grid:true,sel:null,hup:false,ts:0,ws:null};
 let blink=0,seenHit=0,seenStrike=0,bannerT=0,msel=null,defMsg=""; // msel = selected incoming missile uid
+let guest=false, gFoeSams=[]; const gHold={hdg:0,spd:0}, gC=new Map(); // guest mode: the sim does not run here, shadow objects are filled from the host view (see applyView)
 const COL={own:"#fff",ally:"#4da3ff",unk:"#ffd83a",host:"#ff4a4a"};
 
 const cv=$("cv"),g=cv.getContext("2d");
@@ -374,7 +375,7 @@ function draw(){
     g.save(); g.translate(cx+Math.sin(b)*r*px,cy-Math.cos(b)*r*px); g.fillStyle="#00e5ff";
     g.beginPath(); g.moveTo(ux*R,uy*R); g.lineTo(R*(-0.5*ux-h*uy),R*(-0.5*uy+h*ux)); g.lineTo(R*(-0.5*ux+h*uy),R*(-0.5*uy-h*ux)); g.closePath(); g.fill(); g.restore(); }
   // enemy SAMs: same filled triangle, red
-  for(const c of contacts){ if(!c.def) continue; for(const q of c.def.sams){ const dx=q.x-ship.x, dy=q.y-ship.y, r=Math.hypot(dx,dy); if(r>range) continue;
+  for(const c of (guest?[{def:{sams:gFoeSams}}]:contacts)){ if(!c.def) continue; for(const q of c.def.sams){ const dx=q.x-ship.x, dy=q.y-ship.y, r=Math.hypot(dx,dy); if(r>range) continue;
     const b=Math.atan2(dx,dy)-rot*Math.PI/180, a=A(q.hdg||0), ux=Math.cos(a), uy=Math.sin(a), R=6, h=0.8660254;
     g.save(); g.translate(cx+Math.sin(b)*r*px,cy-Math.cos(b)*r*px); g.fillStyle="#ff3b3b";
     g.beginPath(); g.moveTo(ux*R,uy*R); g.lineTo(R*(-0.5*ux-h*uy),R*(-0.5*uy+h*ux)); g.lineTo(R*(-0.5*ux+h*uy),R*(-0.5*uy-h*ux)); g.closePath(); g.fill(); g.restore(); } }
@@ -434,7 +435,7 @@ function sensUi(){
     return `<div class="esmr">E${TK(c).esmNo}  ${c.emit.name}  BRG ${pad3(TK(c).esm.brg)}\u00b1${Sim.CFG.ESM.SIGMA}${near?"  = TRK "+String(c.id).padStart(4,"0"):""}<div class="d">heard ${Math.round(esm.t-TK(c).esm.t)}s ago</div></div>`;
   }).join(""):'<div class="note">No emitters heard.</div>';
 }
-const cmdr=o=>Sim.command(ship,o,{radar,contacts:all(),missiles}); // every player action goes through the command layer
+const cmdr=o=>guest?guestCmd(o):Sim.command(ship,o,{radar,contacts:all(),missiles}); // every player action goes through the command layer (a guest sends it to the host instead)
 $("linkB").onclick=()=>{ ship.linkMsg=cmdr({type:"link"}).msg; sensUi(); };
 $("emconB").onclick=()=>{ cmdr({type:"emcon",on:radar.on}); sensUi(); }; // EMCON forces jamming and LINK off
 const emcon=()=>!radar.on&&!ship.dead[1]; // radar silent by choice (a destroyed SENSORS station is not EMCON)
@@ -595,52 +596,47 @@ function sweepUi(){ $("sweepB").textContent=sweepOn?"On":"Off"; $("sweepB").clas
 $("startB").onclick=()=>{ $("startB").textContent="RESUME"; showMenu(false); };
 $("menuB").onclick=()=>showMenu(true);
 let mpS=null; const mpLog=s=>{ $("mpLog").textContent=s; };
-let mpSeq=0, mpTick=0, mpV=null; const mpInbox=Sim.newInbox(), mpOpen=new Set();
+let mpSeq=0, mpTick=0; const mpInbox=Sim.newInbox(), mpOpen=new Set();
 const mpUnits=()=>[ship,ally].concat(contacts), mpCtx=()=>({radar:ship.radar,contacts:all(),missiles});
-function mpRender(){ const t=$("mpTxt"); if(!mpV){ t.textContent="Waiting for host view..."; return; } const v=mpV.v,o=v.own;
-  t.textContent="HOST SHIP  X "+o.x+" Y "+o.y+"\nHDG "+o.hdg+"  SPD "+o.spd+" (ord "+o.ordSpd+")\nRadar "+(o.radarOn?"ON":"EMCON")+"  ECM "+(o.ecm?"ON":"off")+"  LINK "+(o.link?"ON":"off")+"\nSeats "+["NAV","SENS","WPN","DEF"].map((n,i)=>n+(o.holds[i]?"+":"-")+(o.dead[i]?"X":"")).join(" ")+"\nTracks "+v.tracks.length+"  Missiles "+v.missiles.length+"  Tick "+mpV.tick+"\n"+v.tracks.map(k=>k.id+" BRG "+k.brg+" RNG "+k.rng+" "+Math.round(k.q*100)+"%"+(k.tracked?"":" LOST")).join("\n")+(mpV.msg?"\n> "+mpV.msg:"")+guestSel(); drawGuest(); }
+// ---- guest: the real UI runs on shadow objects (ship / contacts / missiles / ally) filled from the host's filtered view; every action goes to the host as a cmd message ----
+function applyView(v){
+  const o=v.own, oh=ship.ordHdg, os=ship.ordSpd, now=performance.now();
+  Object.assign(ship,{x:o.x,y:o.y,hdg:o.hdg,spd:o.spd,ordHdg:o.ordHdg,ordSpd:o.ordSpd,dead:o.dead,sunk:!!o.sunk,wreck:!!o.wreck,holds:o.holds,link:o.link,loadout:o.loadout,fire:o.fire,fireMsg:o.fireMsg,hitMsg:o.hitMsg,hitSeq:o.hitSeq,strikeMsg:o.strikeMsg,strikeSeq:o.strikeSeq});
+  if(now<gHold.hdg) ship.ordHdg=oh; if(now<gHold.spd) ship.ordSpd=os; // an order just sent stays shown until the host's view catches up
+  Object.assign(ship.def,{decoy:o.def.decoy,sam:o.def.sam,cd:o.def.cd,samCd:o.def.samCd,ciws:o.def.ciws,ciwsOn:o.def.ciwsOn,ecm:o.ecm});
+  radar.on=o.radarOn; radar.ang=o.radar.ang; radar.t=o.radar.t; esm.t=o.esmT; ally.esmS.t=o.allyEsmT;
+  const fr=v.friends[0]; if(fr) Object.assign(ally,{x:fr.x,y:fr.y,hdg:fr.hdg,sunk:fr.sunk,wreck:fr.wreck}); else { ally.x=1e6; ally.y=1e6; }
+  ship.def.sams=v.sams.filter(q=>q.own); ally.def.sams=v.sams.filter(q=>q.mine&&!q.own); gFoeSams=v.sams.filter(q=>!q.mine);
+  const seen=new Set(); // tracks -> the ship's track table (the UI reads it through TK); the contact objects are kept between views so their linked names stay valid
+  for(const t of v.tracks){ const id=cid(t.id); seen.add(id); let c=gC.get(id); if(!c){ c={id}; gC.set(id,c); }
+    c.hdg=t.hdg||0; c.sunk=t.sunk; c.emit={name:t.emit||"?"}; c.esmA=t.esmA;
+    Object.assign(Sim.trkOf(ship,c),{seen:t.seen,tracked:t.tracked,q:t.q,px:t.px,py:t.py,lastHit:t.lastHit,cls:t.cls,identified:t.identified,idActive:t.idActive,idProg:t.idProg,idNote:t.idNote,esm:t.esm,esmNo:t.esmNo}); }
+  for(const id of [...gC.keys()]) if(!seen.has(id)){ gC.delete(id); delete ship.trk[id]; }
+  contacts.length=0; for(const c of [...gC.values()].sort((a,b)=>a.id-b.id)) contacts.push(c);
+  ship.fixes.length=0; for(const f of v.fixes) ship.fixes.push({id:f.id,emId:f.emId,marker:true,seen:true,tracked:false,cls:"unk",px:f.px,py:f.py,t:f.t,esmNo:f.esmNo});
+  missiles.length=0; for(const m of v.missiles) missiles.push({uid:m.uid,n:m.n,lbl:m.lbl,side:m.side,w:m.w,x:m.x,y:m.y,hdg:m.hdg,spd:m.spd,state:m.state||undefined,tid:m.atMe?"own":m.tid,tx:m.tx===null?undefined:m.tx,ty:m.ty===null?undefined:m.ty});
+  if(document.activeElement!==$("hdgIn")) $("hdgIn").value=pad3(ship.ordHdg);
+}
+function guestView(v){
+  const first=!guest; guest=true; applyView(v);
+  if(first){ document.body.classList.add("guest"); $("mp").classList.remove("show"); showMenu(false); $("startB").textContent="RESUME"; $("aiDbg").style.display="none"; seenHit=ship.hitSeq; seenStrike=ship.strikeSeq||0; ui(); sensUi(); applyDmg(); }
+}
+function guestCmd(o){ const a=Object.assign({},o), now=performance.now(); delete a.type;
+  if(o.type==="set_course"&&isFinite(+o.hdg)){ ship.ordHdg=Sim.norm(+o.hdg); gHold.hdg=now+1200; } else if(o.type==="set_speed"&&isFinite(+o.kt)){ ship.ordSpd=+o.kt; gHold.spd=now+1200; }
+  mpCmd(o.type,a); return {ok:true,msg:""}; }
+function guestErr(msg){ $("banner").style.color="#ffd83a"; $("banner").textContent=msg; bannerT=4; } // the host refused a command (e.g. "You do not hold NAVIGATION.")
 
-// ---- guest scope (read-only, drawn from the filtered view only) ----
-const GS={ri:4,hup:false,sel:null}, gg=$("gcv").getContext("2d"), GCOL={own:"#fff",ally:"#4da3ff",unk:"#ffd83a",host:"#ff4a4a"};
-function guestUi(k){ if(k==="-") GS.ri=Math.max(0,GS.ri-1); else if(k==="+") GS.ri=Math.min(RANGES.length-1,GS.ri+1); else GS.hup=!GS.hup; $("gOri").textContent=GS.hup?"HEADING UP":"NORTH UP"; mpRender(); }
-const guestSel=()=>{ const k=mpV&&GS.sel!==null&&mpV.v.tracks.find(t=>String(t.id)===String(GS.sel)); return k?"\nSEL "+k.id+" "+k.cls+" BRG "+k.brg+" RNG "+k.rng+" "+Math.round(k.q*100)+"%":""; };
-function gproj(o,px,rot,cx,cy,x,y){ const dx=x-o.x, dy=y-o.y, r=Math.hypot(dx,dy), b=Math.atan2(dx,dy)-rot*Math.PI/180; return {x:cx+Math.sin(b)*r*px,y:cy-Math.cos(b)*r*px,r}; }
-function drawGuest(){ const g=gg, W=260, H=260; g.setTransform(2,0,0,2,0,0); g.clearRect(0,0,W,H); if(!mpV) return;
-  const v=mpV.v, o=v.own, cx=W/2, cy=H/2, R=W/2-22, range=RANGES[GS.ri], px=R/range, rot=GS.hup?o.hdg:0, A=b=>(b-rot-90)*Math.PI/180;
-  g.strokeStyle="#7d8488"; g.lineWidth=1; g.beginPath(); g.arc(cx,cy,R,0,Math.PI*2); g.stroke(); g.fillStyle="#9aa1a5"; g.font="10px monospace"; g.textAlign="center"; g.textBaseline="middle";
-  for(let d=0;d<360;d+=30){ const a=A(d); g.beginPath(); g.moveTo(cx+Math.cos(a)*R,cy+Math.sin(a)*R); g.lineTo(cx+Math.cos(a)*(R-7),cy+Math.sin(a)*(R-7)); g.stroke(); g.fillText(d,cx+Math.cos(a)*(R+12),cy+Math.sin(a)*(R+12)); }
-  const st=niceStep(range); g.strokeStyle="#34383b"; for(let r=st;r<range-st*0.05;r+=st){ g.beginPath(); g.arc(cx,cy,r*px,0,Math.PI*2); g.stroke(); }
-  const rr=Sim.CFG.RADAR.RANGE*px; if(rr<R-4){ g.save(); g.setLineDash([4,5]); g.strokeStyle="#4b5256"; g.beginPath(); g.arc(cx,cy,rr,0,Math.PI*2); g.stroke(); g.restore(); }
-  for(const k of v.tracks){ if(!k.esm) continue; const a=A(k.esm.brg), sg=Sim.CFG.ESM.SIGMA*Math.PI/180; g.save(); g.fillStyle="rgba(179,136,255,.12)"; g.beginPath(); g.moveTo(cx,cy); g.arc(cx,cy,R,a-sg,a+sg); g.closePath(); g.fill(); g.strokeStyle="#b388ff"; g.setLineDash([7,5]); g.beginPath(); g.moveTo(cx,cy); g.lineTo(cx+Math.cos(a)*R,cy+Math.sin(a)*R); g.stroke(); g.restore(); }
-  for(const k of v.tracks){ if(!k.seen) continue; const p=gproj(o,px,rot,cx,cy,k.px,k.py); if(p.r>range) continue; g.save(); g.translate(p.x,p.y); g.strokeStyle=GCOL[k.cls]||GCOL.unk; g.lineWidth=1.6; g.globalAlpha=k.tracked?1:0.35; if(!k.tracked) g.setLineDash([3,3]);
-    g.beginPath(); if(k.cls==="ally") g.arc(0,0,5.5,0,Math.PI*2); else g.rect(-5,-5,10,10); g.stroke(); g.setLineDash([]); g.globalAlpha=1;
-    if(String(GS.sel)===String(k.id)){ g.strokeStyle="#fff"; g.lineWidth=1; g.strokeRect(-9,-9,18,18); } g.fillStyle=g.strokeStyle=GCOL[k.cls]||GCOL.unk; g.textAlign="left"; g.fillText(String(k.id).padStart(4,"0"),10,0); g.restore(); }
-  for(const u of v.friends){ const p=gproj(o,px,rot,cx,cy,u.x,u.y); if(p.r>range) continue; g.save(); g.translate(p.x,p.y); g.strokeStyle=g.fillStyle=u.sunk?"#ff4a4a":GCOL.ally; g.lineWidth=1.6; g.beginPath();
-    if(u.wreck){ g.moveTo(-7,-7); g.lineTo(7,7); g.moveTo(7,-7); g.lineTo(-7,7); } else g.arc(0,0,5.5,0,Math.PI*2); g.stroke();
-    if(!u.sunk){ const a=A(u.hdg); g.beginPath(); g.moveTo(Math.cos(a)*5,Math.sin(a)*5); g.lineTo(Math.cos(a)*20,Math.sin(a)*20); g.stroke(); } g.textAlign="left"; g.fillText(u.wreck?u.id+" WRECK":String(u.id),10,0); g.restore(); }
-  for(const q of v.sams){ const p=gproj(o,px,rot,cx,cy,q.x,q.y); if(p.r>range) continue; const a=A(q.hdg), ux=Math.cos(a), uy=Math.sin(a), Rs=6, h=0.8660254; g.save(); g.translate(p.x,p.y); g.fillStyle=q.mine?"#00e5ff":"#ff3b3b";
-    g.beginPath(); g.moveTo(ux*Rs,uy*Rs); g.lineTo(Rs*(-0.5*ux-h*uy),Rs*(-0.5*uy+h*ux)); g.lineTo(Rs*(-0.5*ux+h*uy),Rs*(-0.5*uy-h*ux)); g.closePath(); g.fill(); g.restore(); }
-  for(const f of v.fixes){ const p=gproj(o,px,rot,cx,cy,f.px,f.py); if(p.r>range) continue; g.save(); g.translate(p.x,p.y); g.globalAlpha=Math.min(1,f.t/1.5); g.strokeStyle="#b388ff"; g.beginPath(); g.moveTo(0,-7); g.lineTo(7,0); g.lineTo(0,7); g.lineTo(-7,0); g.closePath(); g.stroke(); g.restore(); }
-  for(const m of v.missiles){ const p=gproj(o,px,rot,cx,cy,m.x,m.y); if(p.r>range) continue; g.save(); g.translate(p.x,p.y);
-    if(m.state==="dead"){ g.strokeStyle="#fff"; g.beginPath(); g.moveTo(-4,-4); g.lineTo(4,4); g.moveTo(4,-4); g.lineTo(-4,4); g.stroke(); g.restore(); continue; }
-    g.strokeStyle=m.state?"#777":m.side==="enemy"?(m.atMe?"#ff3b3b":"#ff9a2e"):m.side==="ally"?"#3d8bff":"#00e5ff"; g.lineWidth=1.5; const a=A(m.hdg), ux=Math.cos(a), uy=Math.sin(a), Rm=7, h=0.8660254;
-    g.beginPath(); g.moveTo(ux*Rm,uy*Rm); g.lineTo(Rm*(-0.5*ux-h*uy),Rm*(-0.5*uy+h*ux)); g.lineTo(Rm*(-0.5*ux+h*uy),Rm*(-0.5*uy-h*ux)); g.closePath(); g.stroke(); g.restore(); }
-  if(o.wreck){ g.strokeStyle="#ff4a4a"; g.lineWidth=2.5; g.beginPath(); g.moveTo(cx-9,cy-9); g.lineTo(cx+9,cy+9); g.moveTo(cx+9,cy-9); g.lineTo(cx-9,cy+9); g.stroke(); }
-  else { const a=A(o.hdg); g.strokeStyle=o.sunk?"#ff4a4a":"#fff"; g.lineWidth=1.6; g.strokeRect(cx-5,cy-5,10,10); g.beginPath(); g.moveTo(cx+Math.cos(a)*5,cy+Math.sin(a)*5); g.lineTo(cx+Math.cos(a)*20,cy+Math.sin(a)*20); g.stroke(); }
-  if(v.missiles.some(m=>m.atMe&&!m.state)){ g.strokeStyle="#ff3b3b"; g.lineWidth=3; g.beginPath(); g.arc(cx,cy,R+17,0,Math.PI*2); g.stroke(); } } // lock warning ring
-$("gcv").onclick=e=>{ if(!mpV) return; const r=$("gcv").getBoundingClientRect(), x=e.clientX-r.left, y=e.clientY-r.top, o=mpV.v.own, R=108, px=R/RANGES[GS.ri], rot=GS.hup?o.hdg:0; let best=null,bd=18;
-  for(const k of mpV.v.tracks){ const p=gproj(o,px,rot,130,130,k.px,k.py), d=Math.hypot(p.x-x,p.y-y); if(d<bd){ bd=d; best=k.id; } } GS.sel=best; mpRender(); };
 const mpCmd=(type,args)=>{ if(mpS&&mpS.role==="guest") mpS.send("host",{t:"cmd",seq:++mpSeq,type,args}); };
-$("mpView").onclick=e=>{ const b=e.target.closest("button"); if(!b||!mpS||mpS.role!=="guest") return; if(b.dataset.g){ guestUi(b.dataset.g); return; } if(b.dataset.s!==undefined){ const i=+b.dataset.s; mpCmd(mpV&&mpV.v.own.holds[i]?"release_station":"take_station",{stn:i}); } else if(b.dataset.v==="e") mpCmd("emcon",{on:!!(mpV&&mpV.v.own.radarOn)}); else mpCmd("set_speed",{kt:+b.dataset.v}); };
 setInterval(()=>{ if(!mpS||mpS.role!=="host") return; const r=Sim.drain(mpInbox,()=>ship,mpCtx()); for(const x of r) mpS.send(x.pid,x.reply); },100);
 setInterval(()=>{ if(!mpS||mpS.role!=="host") return; mpTick++; const us=mpUnits(); for(const id of mpOpen) mpS.send(id,{t:"view",tick:mpTick,v:Sim.viewFor(us,missiles,ship,id)}); },500);
-const mpH={ onStatus:mpLog, onPeer:(id,n,s)=>{ if(s==="open"){ mpOpen.add(id); $("mpPing").style.display=""; $("mpLeave").style.display=""; if(mpS&&mpS.role==="guest"){ $("mpView").style.display=""; mpRender(); } } if(s==="closed"){ mpOpen.delete(id); Sim.dropPlayer(ship,id); }
+const mpH={ onStatus:mpLog, onPeer:(id,n,s)=>{ if(s==="open"){ mpOpen.add(id); $("mpPing").style.display=""; $("mpLeave").style.display=""; } if(s==="closed"){ mpOpen.delete(id); Sim.dropPlayer(ship,id); }
   mpLog((mpS&&mpS.role==="host"?"Room "+mpS.code+"\nPlayers connected: "+mpOpen.size+"\nPress BACK, then START to run the game.":id+": "+s)); },
-  onMsg:(from,m)=>{ if(mpS&&mpS.role==="host"){ if(m&&m.t==="cmd") Sim.enqueue(mpInbox,from,m); } else if(m.t==="view"){ mpV={tick:m.tick,v:m.v,msg:mpV?mpV.msg:""}; mpRender(); } else if(m.t==="ack"||m.t==="err"){ if(mpV) mpV.msg=m.t==="ack"?"OK #"+m.seq:"#"+m.seq+" "+m.msg; mpRender(); } }, onRtt:(id,ms)=>mpLog("Ping "+id+": "+ms+" ms"), onEnd:r=>{ mpLog("Disconnected: "+r); mpS=null; mpV=null; mpOpen.clear(); $("mpPing").style.display="none"; $("mpLeave").style.display="none"; $("mpView").style.display="none"; } };
+  onMsg:(from,m)=>{ if(mpS&&mpS.role==="host"){ if(m&&m.t==="cmd") Sim.enqueue(mpInbox,from,m); } else if(m.t==="view") guestView(m.v); else if(m.t==="err") guestErr(m.msg); }, onRtt:(id,ms)=>mpLog("Ping "+id+": "+ms+" ms"), onEnd:r=>{ if(guest){ try{ sessionStorage.setItem("emcon.mp","Disconnected: "+r); }catch(e){} location.reload(); return; } mpLog("Disconnected: "+r); mpS=null; mpOpen.clear(); $("mpPing").style.display="none"; $("mpLeave").style.display="none"; } };
 const mpName=()=>$("mpName").value.trim()||"Player";
 $("mpB").onclick=()=>{ $("menu").classList.remove("show"); $("mp").classList.add("show"); };
 $("mpBack").onclick=()=>{ $("mp").classList.remove("show"); $("menu").classList.add("show"); };
-$("mpLeave").onclick=()=>{ if(mpS){ mpS.close(); mpS=null; } mpV=null; mpOpen.clear(); for(const id of ["mpPing","mpLeave","mpView"]) $(id).style.display="none"; mpLog("Left the room."); };
+try{ const m=sessionStorage.getItem("emcon.mp"); if(m){ sessionStorage.removeItem("emcon.mp"); mpLog(m); $("menu").classList.remove("show"); $("mp").classList.add("show"); } }catch(e){}
+$("mpLeave").onclick=()=>{ if(mpS){ mpS.close(); mpS=null; } if(guest){ try{ sessionStorage.setItem("emcon.mp","Left the room."); }catch(e){} location.reload(); return; } mpOpen.clear(); for(const id of ["mpPing","mpLeave"]) $(id).style.display="none"; mpLog("Left the room."); }; // a guest reloads: the local game state was replaced by the host's view
 $("mpHost").onclick=async()=>{ if(mpS) mpS.close(); mpLog("Creating room..."); try{ mpS=await Net.host({name:mpName()+"'s room",player:mpName(),public:true,max:4},mpH); mpLog("Room code: "+mpS.code+"\nWaiting for players..."); }catch(e){ mpLog("Error: "+e.message); } };
 $("mpJoin").onclick=async()=>{ if(mpS) mpS.close(); mpLog("Joining..."); try{ mpS=await Net.join($("mpCode").value,mpName(),mpH); mpLog("In room "+mpS.code+"\nConnecting to host..."); }catch(e){ mpLog("Error: "+e.message); } };
 $("mpPing").onclick=()=>{ if(!mpS) return; if(mpS.role==="guest") mpS.ping("host"); else Object.keys(mpS.dcs).forEach(id=>mpS.ping(id)); };
@@ -663,7 +659,7 @@ $("dbgR").onclick=()=>{ Sim.resetShip(ship); radar.on=true; missiles.length=0; s
 let last=performance.now();
 function frame(t){
   const rdt=Math.min(0.1,(t-last)/1000); last=t; let sdt=rdt*TS[S.ts]; // rdt = real time (radar), sdt = scaled (ship motion)
-  if(!S.paused){ while(sdt>0){ const h=Math.min(0.5,sdt); Sim.stepUnit(ship,h); Sim.stepUnit(ally,h,ship); for(const c of contacts) Sim.stepUnit(c,h); Sim.stepMissiles(missiles,contacts,h,ship,ally); Sim.stepDefense(ship,missiles,h); for(const c of contacts) Sim.aiSamMove(c,missiles,h); Sim.allySamMove(ally,missiles,h); sdt-=h; }
+  if(!S.paused&&!guest){ while(sdt>0){ const h=Math.min(0.5,sdt); Sim.stepUnit(ship,h); Sim.stepUnit(ally,h,ship); for(const c of contacts) Sim.stepUnit(c,h); Sim.stepMissiles(missiles,contacts,h,ship,ally); Sim.stepDefense(ship,missiles,h); for(const c of contacts) Sim.aiSamMove(c,missiles,h); Sim.allySamMove(ally,missiles,h); sdt-=h; }
     if(ship.dead[1]){ radar.on=false; for(const c of contacts) TK(c).esm=null; }
     if(emcon()){ ship.def.ecm=false; ship.link=false; } if(ship.dead[1]) ship.link=false;
     Sim.linkShare(ship,ally,contacts);
@@ -672,6 +668,7 @@ function frame(t){
     Sim.allyDefStep(ally,missiles,rdt); // sensors destroyed: radar dead, ESM deaf
     Sim.radarStep(radar,ship,contacts,rdt); if(!ship.dead[1]) Sim.esmStep(esm,ship,contacts,rdt); const lk=ship.link&&!ship.dead[1]&&!ally.dead[1]; for(const c of contacts) c.esmA=lk?(Sim.trkOf(ally,c).esm||null):null; Sim.fixStep(ship.fixes,ship,ally,contacts,esm,ally.esmS,rdt); // the ally's bearings come from its own track records (its own ESM runs inside its AI)
     Sim.aiFixStep(contacts,rdt); Sim.identifyStep(contacts,rdt,radar.on,ship); Sim.fireStep(ship,all(),missiles,rdt); Sim.reap(missiles,rdt); Sim.ecmStep(ship,missiles,rdt); Sim.ciwsStep(ship,missiles,rdt); } // sensors run in real time
+  if(guest){ radar.ang=Sim.norm(radar.ang+360/Sim.CFG.RADAR.PERIOD*rdt); radar.t+=rdt; esm.t+=rdt; ally.esmS.t+=rdt; } // between views the clocks keep running (every view overwrites them with the host's)
   blink=Math.floor(t/300)%2; S.lock=!ship.wreck&&missiles.some(m=>m.tid==="own"&&!m.state); // enemy missile aimed at us
   $("top").style.borderBottom=S.lock?"4px solid "+(blink?"#fff":"#ff3b3b"):"";
   if(ship.hitSeq!==seenHit){ seenHit=ship.hitSeq; $("banner").style.color="#ff4a4a"; $("banner").textContent=ship.hitMsg; bannerT=8; applyDmg(); }
@@ -683,7 +680,7 @@ $("sensPage").insertAdjacentHTML("beforeend",'<div class="note" id="aiDbg" style
 function aiDbg(){ $("aiDbg").innerHTML=contacts.map(c=>dbgOne(c)).concat([dbgOne(ally,"ALLY A1")]).join("<hr>"); }
 const slotOf=(c,w)=>c.loadout.find(l=>l.w===w);
 function dbgOne(c,lb){ const a=c.ai; return "DEBUG "+(lb||"ENEMY "+c.id)+(a.fix?" · FIX known"+(a.fix.host?" (hostile)":""):"")+"<br>Radar: "+(c.emitting?"ON":"off")+" ("+Math.round(a.t%60)+"/60 s)<br>Primary track: "+(a.tracks?Math.round(a.q*100)+"%":"no")+"<br>Hears emitters: "+(a.hears?"yes, BRG "+pad3(a.hears.brg):"no")+"<br>Range: "+Math.hypot(c.x-ship.x,c.y-ship.y).toFixed(1)+" nm<br>State: "+a.state+(a.known?" ("+a.known+")":"")+(a.state==="id"?" \u00b7 ID "+Math.round(a.idp*100)+"%":"")+(a.state==="inv"?" \u00b7 BRG "+pad3(a.hb):"")+"<br>Next launch in: "+Math.ceil(a.cd)+" s · SSM "+slotOf(c,"ssm").ammo+" · ASM "+slotOf(c,"asm").ammo+"<br>Stations: "+["NAV","SENS","WPN","DEF"].map((n,i)=>n+(c.dead[i]?" X":" ok")).join(" · ")+(c.sunk?" · DESTROYED":"")+"<br>Defense: SAM "+c.def.sam+" · decoy "+c.def.decoy+(c.ecm?" · ECM":""); }
-setInterval(()=>{aiDbg();fillTable();sensUi();wpnList();defList();applyDmg();},500);
+setInterval(()=>{ for(const f of [()=>{ if(!guest) aiDbg(); },fillTable,sensUi,wpnList,defList,applyDmg]) try{ f(); }catch(e){} },500); // one failing refresh must not stop the others
 resize(); ui(); sensUi(); identPanel(); wpnList(); wpnPanel(); defList(); defPanel(); requestAnimationFrame(frame);
 </script>
 </body>

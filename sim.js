@@ -554,22 +554,24 @@
   function viewFor(units, missiles, v, pid) {
     const r1 = n => Math.round(n * 100) / 100, me = isShip(v) ? "own" : v.id, T = v.ai ? v.ai.trk : (v.trk || {}), byKey = {};
     for (const u of units) byKey[keyOf(u)] = u;
-    const tracks = [];
-    for (const k of Object.keys(T)) { const r = T[k], f = byKey[k]; if (k === "_" || !(r.seen || r.esm) || !f || (f.sunk && !isShip(f))) continue;
+    const tracks = [], fr = v.link && !(v.dead && v.dead[1]) ? units.find(u => u !== v && u.team === v.team && u.esmS && !(u.dead && u.dead[1])) : null, FT = fr ? (fr.ai ? fr.ai.trk : fr.trk) : null; // fr = the friend whose ESM bearings LINK shares
+    for (const k of Object.keys(T)) { const r = T[k], f = byKey[k]; if (k === "_" || !(r.seen || r.esm) || !f || (f.sunk && !isShip(f) && !r.seen)) continue;
       const dx = r.px - v.x, dy = r.py - v.y; // from the last DETECTED position
-      tracks.push({ id: k, seen: !!r.seen, esmNo: r.esmNo, tracked: r.tracked, q: r1(r.q), brg: r1(norm(Math.atan2(dx, dy) * 180 / Math.PI)), rng: r1(Math.hypot(dx, dy)), px: r1(r.px), py: r1(r.py), cls: r.cls, identified: r.identified, idActive: r.idActive, idProg: r1(r.idProg), idNote: r.idNote, esm: r.esm ? { brg: r1(r.esm.brg), t: r.esm.t } : null }); }
+      tracks.push({ id: k, seen: !!r.seen, esmNo: r.esmNo, tracked: r.tracked, q: r1(r.q), brg: r1(norm(Math.atan2(dx, dy) * 180 / Math.PI)), rng: r1(Math.hypot(dx, dy)), px: r1(r.px), py: r1(r.py), cls: r.cls, identified: r.identified, idActive: r.idActive, idProg: r1(r.idProg), idNote: r.idNote, esm: r.esm ? { brg: r1(r.esm.brg), t: r.esm.t } : null,
+        sunk: !!f.sunk, lastHit: r1(r.lastHit), hdg: r.identified ? r1(f.hdg || 0) : null, emit: f.emit ? f.emit.name : null, esmA: FT && FT[k] && FT[k].esm ? { brg: r1(FT[k].esm.brg), t: r1(FT[k].esm.t) } : null }); } // hdg only once identified (the scope draws that line); esmA = the friend's bearing (white line)
     const ms = [];
     for (const m of missiles) { const atMe = m.tid === me, mine = (m.side === "enemy") === (v.team === "red"); // m.side is relative to the player ship: own/ally = blue team, enemy = red team
       if (!(mine || atMe || Math.hypot(m.x - v.x, m.y - v.y) <= CFG.RADAR.HORIZON)) continue;
-      ms.push({ uid: m.uid, n: m.n, lbl: m.lbl || null, side: m.side, w: m.w, x: r1(m.x), y: r1(m.y), hdg: r1(m.hdg), spd: m.spd, state: m.state || null, atMe, tid: mine ? m.tid : null }); }
+      ms.push({ uid: m.uid, n: m.n, lbl: m.lbl || null, side: m.side, w: m.w, x: r1(m.x), y: r1(m.y), hdg: r1(m.hdg), spd: m.spd, state: m.state || null, atMe, tid: mine ? m.tid : null, tx: mine && m.tx !== undefined ? r1(m.tx) : null, ty: mine && m.ty !== undefined ? r1(m.ty) : null }); }
     const friends = [], sams = [];
     for (const u of units) { if (u === v) continue; const mine = u.team === v.team;
       if (mine) friends.push({ id: keyOf(u), x: r1(u.x), y: r1(u.y), hdg: r1(u.hdg), sunk: !!u.sunk, wreck: !!u.wreck });
       for (const q of (u.def && u.def.sams) || []) { if (!mine && Math.hypot(q.x - v.x, q.y - v.y) > CFG.RADAR.HORIZON) continue; sams.push({ x: r1(q.x), y: r1(q.y), hdg: r1(q.hdg || 0), mine }); } }
-    for (const q of v.def.sams || []) sams.push({ x: r1(q.x), y: r1(q.y), hdg: r1(q.hdg || 0), mine: true });
+    for (const q of v.def.sams || []) sams.push({ x: r1(q.x), y: r1(q.y), hdg: r1(q.hdg || 0), mine: true, own: true });
     return { id: me, team: v.team, friends, sams, own: { x: r1(v.x), y: r1(v.y), hdg: r1(v.hdg), spd: r1(v.spd), ordHdg: r1(v.ordHdg || 0), ordSpd: v.ordSpd || 0, dead: v.dead.slice(), sunk: v.sunk, wreck: v.wreck, holds: pid != null ? seatsOf(v, pid) : (v.holds ? v.holds.slice() : [true, true, true, true]), radarOn: !!(v.radar && v.radar.on), ecm: !!v.def.ecm, link: !!v.link,
-      loadout: v.loadout.map(l => ({ w: l.w, ammo: l.ammo })), def: { decoy: v.def.decoy, sam: v.def.sam, cd: r1(v.def.cd), samCd: r1(v.def.samCd), ciws: v.def.ciws, ciwsOn: v.def.ciwsOn }, fire: v.fire ? { slot: v.fire.slot, tid: v.fire.tid, t: r1(v.fire.t) } : null, fireMsg: v.fireMsg || "", hitMsg: v.hitMsg || "", hitSeq: v.hitSeq || 0 },
-      tracks, fixes: (v.fixes || []).map(f => ({ id: f.id, emId: f.emId, px: r1(f.px), py: r1(f.py), t: r1(f.t) })), missiles: ms };
+      loadout: v.loadout.map(l => ({ w: l.w, ammo: l.ammo })), def: { decoy: v.def.decoy, sam: v.def.sam, cd: r1(v.def.cd), samCd: r1(v.def.samCd), ciws: v.def.ciws, ciwsOn: v.def.ciwsOn }, fire: v.fire ? { slot: v.fire.slot, tid: v.fire.tid, t: r1(v.fire.t) } : null, fireMsg: v.fireMsg || "", hitMsg: v.hitMsg || "", hitSeq: v.hitSeq || 0, strikeMsg: v.strikeMsg || "", strikeSeq: v.strikeSeq || 0,
+      radar: { ang: r1((v.radar && v.radar.ang) || 0), t: r1((v.radar && v.radar.t) || 0) }, esmT: r1(v.esmS ? v.esmS.t : 0), allyEsmT: fr ? r1(fr.esmS.t) : 0 },
+      tracks, fixes: (v.fixes || []).map(f => ({ id: f.id, emId: f.emId, esmNo: f.esmNo, px: r1(f.px), py: r1(f.py), t: r1(f.t) })), missiles: ms };
   }
   // ---- command queue (network): clients send {t:"cmd", seq, type, args}; the host enqueues them and drains once per tick, in arrival order ----
   // Each player's seq must increase; a repeated/older seq is a retransmit: acked again, NOT executed twice. Replies: {t:"ack",seq[,dup]} or {t:"err",seq,msg}.

@@ -598,7 +598,8 @@ test("viewFor: plain JSON, no ground truth (no true positions/side/rcs of foes),
   assert.ok(!("x" in t) && !("y" in t), "no true foe position");
   assert.deepEqual(JSON.parse(s), v, "round-trips as JSON");
   assert.deepEqual(v.own.holds, [true, true, true, true]);
-  c.sunk = true; assert.equal(Sim.viewFor(units, [], ship).tracks.length, 0, "sunk foe dropped");
+  c.sunk = true; const vs = Sim.viewFor(units, [], ship).tracks; assert.equal(vs.length, 1, "seen destroyed foe kept (the scope draws its red X)"); assert.equal(vs[0].sunk, true);
+  T.seen = false; assert.equal(Sim.viewFor(units, [], ship).tracks.length, 0, "unseen destroyed foe dropped");
 });
 test("viewFor: missiles filtered (own team always; foes only if aimed at me or within the horizon); seats in own.holds", () => {
   const ship = Sim.newShip(), c = mkEn(20); c.id = 7;
@@ -649,4 +650,18 @@ test("viewFor: ESM-only record appears (seen=false), friends and SAMs filtered b
   assert.equal(v.friends.length, 1); assert.equal(v.friends[0].id, "A1");
   assert.equal(v.sams.length, 3, "own, ally, enemy inside horizon; far enemy hidden");
   assert.equal(v.sams.filter(s => s.mine).length, 2);
+});
+test("viewFor: scope fields (identified heading, emit name, LINK friend bearing, beam clock, own SAM flag)", () => {
+  const ship = Sim.newShip(), al = Sim.newAlly(15, 0), c = mkEn(20); c.id = 7; c.hdg = 123;
+  const T = Sim.trkOf(ship, c); T.seen = true; T.px = 3; T.py = 4; T.lastHit = 5;
+  let v = Sim.viewFor([ship, al, c], [], ship, null), t = v.tracks[0];
+  assert.equal(t.hdg, null, "heading hidden until identified"); assert.equal(t.esmA, null); assert.equal(t.lastHit, 5); assert.equal(t.emit, c.emit.name);
+  T.identified = true; ship.link = true; Sim.trkOf(al, c).esm = { brg: 40, t: 2 };
+  v = Sim.viewFor([ship, al, c], [], ship, null); t = v.tracks[0];
+  assert.equal(t.hdg, 123); assert.deepEqual(t.esmA, { brg: 40, t: 2 });
+  assert.ok("ang" in v.own.radar && "t" in v.own.radar && "esmT" in v.own && "strikeSeq" in v.own);
+  ship.def.sams.push({ uid: 1, x: 1, y: 2, hdg: 3 }); al.def.sams.push({ uid: 2, x: 5, y: 6, hdg: 7 });
+  v = Sim.viewFor([ship, al, c], [], ship, null);
+  assert.equal(v.sams.filter(s => s.own).length, 1); assert.equal(v.sams.filter(s => s.mine && !s.own).length, 1);
+  assert.deepEqual(JSON.parse(JSON.stringify(v)), v, "still plain JSON");
 });
