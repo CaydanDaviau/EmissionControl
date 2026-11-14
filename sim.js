@@ -57,7 +57,7 @@
   function newTrk() { return { seen: false, tracked: false, q: 0, px: 0, py: 0, lastHit: -1e9, cls: "unk", identified: false, idActive: false, idProg: 0, idNote: "", esm: null, esmNo: 0, known: null }; } // px/py = last detected position; cls = tag; known = identification result (AI use)
   const LINKED = ["seen", "tracked", "q", "px", "py", "lastHit", "cls", "identified", "idActive", "idProg", "idNote", "esm", "esmNo"]; // names the UI and tests still read on a contact: they point into the human ship's record
   function linkTrk(c, r) { for (const f of LINKED) { const d = Object.getOwnPropertyDescriptor(c, f); if (d && "value" in d) r[f] = d.value; Object.defineProperty(c, f, { get() { return r[f]; }, set(v) { r[f] = v; }, enumerable: false, configurable: true }); } }
-  function trkOf(u, c) { const k = c.id === undefined ? "own" : c.id, T = u.ai ? u.ai.trk : (u.trk || (u.trk = {})); let r = T[k]; if (!r) { r = T[k] = newTrk(); if (u.ctl === "human") linkTrk(c, r); } return r; } // the unit's record for contact c (made on first use)
+  function trkOf(u, c) { const k = c.id === undefined ? "own" : c.id, T = u.ai ? u.ai.trk : (u.trk || (u.trk = {})); let r = T[k]; if (!r) { r = T[k] = newTrk(); if (u.ctl === "human" && !c._lk) { Object.defineProperty(c, "_lk", { value: 1 }); linkTrk(c, r); } } return r; } // the unit's record for contact c (made on first use)
   const peekTrk = (u, c) => { const T = u.ai ? u.ai.trk : u.trk; return T && T[c.id === undefined ? "own" : c.id]; }; // the unit's record for c if one exists (does not create)
   function newRadar(seed) { return { ang: 0, t: 0, seed: seed | 0, on: true }; } // on=false: EMCON, beam turns but nothing is detected
   function rand(r) { // mulberry32, state in r.seed
@@ -263,7 +263,7 @@
     ship.dead = [false, false, false, false]; ship.link = false; ship.radar.on = true; ship.holds = null; ship.sunk = false; ship.wreck = false; ship.fire = null; ship.fireMsg = ""; ship.hitMsg = ""; }
   function stepMissiles(missiles, contacts, dt, ship, ally, extra) { // scaled dt. Targets are found by key (tid: "own" = the local human ship, an id for any other unit); extra = further units (other human ships). A human shooter's missile follows its live track; an AI shooter's flies to the last known point (tx/ty) until its seeker finds the real unit
     const units = [ship, ally].concat(contacts || [], extra || []).filter(Boolean), byK = k => units.find(u => keyOf(u) === k), isHum = u => !!u && u.ctl === "human";
-    const res = r => !r || !r.hit ? " MISSED" : r.sunk ? " HIT: SHIP DESTROYED" : " HIT: " + r.lost.map(k => STN[k]).join(" + ") + " DESTROYED", pad = u => String(u.id).padStart(4, "0");
+    const res = r => !r || !r.hit ? " MISSED" : r.sunk ? " HIT: SHIP DESTROYED" : " HIT: " + r.lost.map(k => STN[k]).join(" + ") + " DESTROYED", pad = u => /^\d+$/.test(String(u.id)) ? String(u.id).padStart(4, "0") : String(u.id);
     for (let i = missiles.length - 1; i >= 0; i--) {
       const m = missiles[i], W = CFG.WEAPONS[m.w], fixed = m.tid === "mk", T = fixed ? null : byK(m.tid);
       const S = (m.from !== undefined ? byK(m.from) : null) || (m.side === "own" ? ship : m.side === "ally" ? ally : null), humanShot = isHum(S) || (!S && m.side === "own");
@@ -420,6 +420,19 @@
         const u = e.pids.length ? mkHuman(id, t, e.type, e.pids, i => (e.roles ? (e.roles[i] ? [e.roles[i]] : []) : e.pids.slice())) : mkAi(id, t, e.type, k, list.length);
         if (u.ctl === "human") place(u, t, k, list.length); out.push({ id, team: t, type: e.type, pids: e.pids.slice(), unit: u }); }); }
     return { units: out.map(o => o.unit), ships: out };
+  }
+  // ---- world: one list of units drives the whole match (humans and AI alike) ----
+  // newWorld(match) -> { units, missiles, ref }; ref = the reference human ship (carries the missile counters/uids and banners for non-human targets).
+  const newWorld = (match, missiles) => { const units = match.units, ref = units.find(isShip) || units[0]; return { units, missiles: missiles || [], ref }; };
+  // stepWorld(W, rdt, sdt): real dt for sensors/AI/defense rolls, scaled dt for motion (same split as the old frame()). Every unit is stepped; AI units run the AI, human units run the same sensor/defense drivers as the player ship. Not done here: FIX markers and LINK sharing.
+  function stepWorld(W, rdt, sdt) {
+    const U = W.units, M = W.missiles, ref = W.ref, rest = U.filter(u => u !== ref), foesOfU = u => U.filter(f => f !== u && f.team !== u.team);
+    while (sdt > 0) { const h = Math.min(0.5, sdt); for (const u of U) stepUnit(u, h, ref); stepMissiles(M, rest, h, ref, null, []); for (const u of U) if (u.def) stepDefense(u, M, h); sdt -= h; }
+    for (const u of U) { if (u.ai) { aiStep(u, ref, rdt, null, rest); aiFireStep(u, ref, M, rdt, null, rest); aiDefStep(u, M, rdt); continue; }
+      const foes = foesOfU(u); if (u.dead[1]) u.radar.on = false;
+      radarSweep(u, u.radar, foes, rdt); if (!u.dead[1]) esmSweep(u, u.esmS, foes, rdt, "esm"); identifySweep(u, foes, rdt, u.radar.on);
+      fireStep(u, foes.concat(u.fixes || []), M, rdt, ref); reloadStep(u, rdt); ecmStep(u, M, rdt); ciwsStep(u, M, rdt, m => !m.state && hostileTo(u, m), true); }
+    reap(M, rdt);
   }
   const allySamMove = aiSamMove;
   // ---- enemy AI (first stage): patrol, duty-cycled radar, ESM; same sensor rules as the player, no weapons yet. Real-time dt ----
@@ -606,6 +619,6 @@
       out.push({ pid, reply: r.ok ? (r.msg ? { t: "ack", seq, msg: r.msg } : { t: "ack", seq }) : { t: "err", seq, msg: r.msg || "Refused." } }); } // ack may carry the command's message (e.g. LINK / SAM / decoy result)
     return out;
   }
-  const api = { buildMatch, newInbox, enqueue, drain, dropPlayer, seatsOf, viewFor, linkShare, command, trkOf, reloadStep, newTrk, toggleLink, newAlly, resetAlly, allyStep, stepUnit, launchMissile, rays, fixStep, aiFixStep, initEnemy, resetEnemy, aiDefStep, aiSamMove, allyDefStep, allySamMove, resetAi, aiIdTime, aiFireStep, newAi, aiStep, ciwsStep, ecmStep, toggleEcm, deployDecoy, launchSam, setCiws, stepDefense, reap, defCheck, CFG, norm, diff, newShip, step, newRadar, newContact, pDetect, radarStep, setTag, stepContact, newEsm, pEsm, esmStep, startIdentify, cancelIdentify, identifyStep, identifyTime, fireCheck, startFire, cancelFire, fireStep, stepMissiles, hitShip, debugMissile, resetShip, STN };
+  const api = { newWorld, stepWorld, buildMatch, newInbox, enqueue, drain, dropPlayer, seatsOf, viewFor, linkShare, command, trkOf, reloadStep, newTrk, toggleLink, newAlly, resetAlly, allyStep, stepUnit, launchMissile, rays, fixStep, aiFixStep, initEnemy, resetEnemy, aiDefStep, aiSamMove, allyDefStep, allySamMove, resetAi, aiIdTime, aiFireStep, newAi, aiStep, ciwsStep, ecmStep, toggleEcm, deployDecoy, launchSam, setCiws, stepDefense, reap, defCheck, CFG, norm, diff, newShip, step, newRadar, newContact, pDetect, radarStep, setTag, stepContact, newEsm, pEsm, esmStep, startIdentify, cancelIdentify, identifyStep, identifyTime, fireCheck, startFire, cancelFire, fireStep, stepMissiles, hitShip, debugMissile, resetShip, STN };
   if (typeof module !== "undefined" && module.exports) module.exports = api; else root.Sim = api;
 })(typeof self !== "undefined" ? self : this);

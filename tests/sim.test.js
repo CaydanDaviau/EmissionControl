@@ -763,3 +763,13 @@ test("teams: a red human ship is hit by a blue AI missile (own banner), and its 
   const m2 = Sim.launchMissile(A, "ssm", { tid: "b1" }, ms, A); m2.x = B.x; m2.y = B.y + 5; const v = Sim.viewFor(mt.units, ms, B, "g1");
   assert.ok(v.missiles[0].atMe, "viewer b1 is the target");
 });
+
+test("world: stepWorld runs a 2-human + AI match (moves, sensors, AI, missiles) without errors; humans on both teams sense each other", () => {
+  const L = require("../lobby.js"), r = L.newRoom({ name: "R", mode: "solo", max: 4 }, "host", "H"); L.add(r, "g1", "G"); L.move(r, "host", "A"); L.move(r, "g1", "B");
+  const W = Sim.newWorld(Sim.buildMatch(r, 11)), A = W.units.find(u => u.id === "a1"), B = W.units.find(u => u.id === "b1"); assert.equal(W.ref, A);
+  Sim.command(A, { type: "set_speed", kt: 15 }, { radar: A.radar, contacts: [], missiles: W.missiles }); Sim.command(A, { type: "set_course", hdg: 90 }, { radar: A.radar, contacts: [], missiles: W.missiles });
+  const x0 = A.x; for (let t = 0; t < 600; t++) Sim.stepWorld(W, 0.1, 0.1 * 5);
+  assert.ok(A.x > x0 + 0.5, "ship a1 moved east"); assert.ok(W.units.every(u => Number.isFinite(u.x) && Number.isFinite(u.y)));
+  const rb = Sim.trkOf(A, B); assert.ok(rb.esm, "A's ESM hears B's radar across the 40 nm gap");
+  assert.ok(Sim.trkOf(B, A).esm, "B hears A as well");
+});
