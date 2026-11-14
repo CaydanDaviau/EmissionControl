@@ -108,7 +108,7 @@ body.guest .dbg,body.guest #tsB{display:none}
 <div id="app">
   <div id="top">
     <button id="menuB">&#9776;</button>
-    <div class="st" id="stName">NAVIGATION</div>
+    <div class="st" id="stName">BRIDGE</div>
     <div><b>POS</b> <span id="pos"></span></div>
     <div class="hide-s"><b>UTC</b> <span id="utc"></span></div>
     <div><b>CRS</b> <span id="crs">000°</span></div>
@@ -131,7 +131,7 @@ body.guest .dbg,body.guest #tsB{display:none}
               <div class="row tags"><button data-t="unk">UNKNOWN</button><button data-t="ally">ALLY</button><button data-t="host">HOSTILE</button></div>
             </div>
 
-            <div class="sec" id="navDeadSec">NAVIGATION DESTROYED<div class="note">No steering or speed control. Ship holds its last course and speed.</div></div>
+            <div class="sec" id="navDeadSec">BRIDGE DESTROYED<div class="note">No steering or speed control. Ship holds its last course and speed.</div></div>
             <div class="sec" id="secSpd">
               <h5>SPEED</h5>
               <div class="row spd">
@@ -251,7 +251,7 @@ const $=id=>document.getElementById(id);
 const pad3=n=>String(Math.round(n)).padStart(3,"0");
 
 // ---- stations (tabs) ----
-const STATIONS=["NAVIGATION","SENSORS","WEAPONS","DEFENSE"];
+const STATIONS=["BRIDGE","SENSORS","WEAPONS","DEFENSE"];
 let stIdx=0;
 STATIONS.forEach((n,i)=>{ if(i<=3) return;
   const d=document.createElement("div"); d.className="page pl"; d.id="pg"+i;
@@ -657,7 +657,7 @@ function guestCmd(o){ const a=Object.assign({},o), now=performance.now(); delete
   if(o.type==="set_course"&&isFinite(+o.hdg)){ ship.ordHdg=Sim.norm(+o.hdg); gHold.hdg=now+1200; } else if(o.type==="set_speed"&&isFinite(+o.kt)){ ship.ordSpd=+o.kt; gHold.spd=now+1200; }
   mpCmd(o.type,a); gPend[mpSeq]=o.type; return {ok:true,msg:""}; }
 function guestAck(m){ const t=gPend[m.seq]; delete gPend[m.seq]; if(!m.msg) return; if(t==="link") ship.linkMsg=m.msg; else if(t==="ecm"||t==="launch_sam"||t==="deploy_decoy") defMsg=m.msg; } // the host's reply text goes to the panel that sent the command
-function guestErr(msg,seq){ guestAck({seq,msg}); $("banner").style.color="#ffd83a"; $("banner").textContent=msg; bannerT=4; } // the host refused a command (e.g. "You do not hold NAVIGATION.")
+function guestErr(msg,seq){ guestAck({seq,msg}); $("banner").style.color="#ffd83a"; $("banner").textContent=msg; bannerT=4; } // the host refused a command (e.g. "You do not hold BRIDGE.")
 
 const mpCmd=(type,args)=>{ if(mpS&&mpS.role==="guest") mpS.send("host",{t:"cmd",seq:++mpSeq,type,args}); };
 setInterval(()=>{ if(!mpS||mpS.role!=="host") return; const r=Sim.drain(mpInbox,()=>ship,mpCtx()); for(const x of r) mpS.send(x.pid,x.reply); },100);
@@ -744,7 +744,7 @@ $("backB").onclick=()=>{ $("settings").classList.remove("show"); $("menu").class
 $("sweepB").onclick=()=>{ sweepOn=!sweepOn; try{localStorage.setItem("emcon.sweep",sweepOn?"1":"0");}catch(e){} sweepUi(); };
 sweepUi();
 // ---- damage: destroyed stations show DESTROYED; debug buttons live in the menu ----
-const STN_SHORT=["NAV","SENS","WPN","DEF"];
+const STN_SHORT=["BRG","SENS","WPN","DEF"];
 function applyDmg(){ const hd=i=>!ship.holds||ship.holds[i]; // stations you do not hold: view only
   $("navPage").classList.toggle("navnot",!hd(0)); $("sensPage").classList.toggle("nothold",!hd(1)&&!ship.dead[1]); $("wpnPage").classList.toggle("nothold",!hd(2)&&!ship.dead[2]); $("defPage").classList.toggle("nothold",!hd(3)&&!ship.dead[3]);
   $("sensPage").classList.toggle("dead",ship.dead[1]); $("wpnPage").classList.toggle("dead",ship.dead[2]);

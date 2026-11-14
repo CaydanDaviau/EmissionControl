@@ -30,7 +30,7 @@
     AI: { DUTY_PERIOD: 60, DUTY_ON: 20, SWEEP: 4, SHIP_RCS: 10000, SHIP_H: 60, H_ANT: 100, COAST: 0.02, TURN: 3, WP_NM: 1, FIRE_Q: 0.5, FIRE_CD: 30, FIX_CD: 180, HOLD: 0.8, BAND: 4, GIVE_UP: 180, REACT_MIN: 2, REACT_MAX: 5, INV_HOLD: 60 }, // HOLD = fraction of its radar range it tries to keep us at (detection edge), BAND = +- nm around that, GIVE_UP = real s without a track before it goes back to patrol; // enemy radar on 20 s of every 60 s; FIRE_Q = min track quality to fire, FIRE_CD = seconds between launches
     IDENTIFY: { TIME: 20, D_REF: 10, MIN: 5, MAX: 90 } // TIME = seconds at D_REF nm for a normal (RCS_REF) contact
   };
-  const STN = ["NAVIGATION", "SENSORS", "WEAPONS", "DEFENSE"];
+  const STN = ["BRIDGE", "SENSORS", "WEAPONS", "DEFENSE"];
   const norm = a => ((a % 360) + 360) % 360;
   const diff = (to, from) => { const d = norm(to - from); return d > 180 ? d - 360 : d; };
 
@@ -413,7 +413,7 @@
     const mkHuman = (id, t, type, pids, seats) => { const u = newShip(); u.id = id; u.pids = pids; u.type = type; initUnit(u, TEAM[t], "human", (seed | 0) + out.length * 101 + 7); u.radar = newRadar((seed | 0) + out.length * 103 + 5);
       u.seats = [0, 1, 2, 3].map(i => seats(i)); return u; };
     const mkAi = (id, t, type, k, n) => { const c = newContact(id, 0, 1, { side: "enemy", speed: 15, emit: { name: t === "A" ? "AN/SPY-1D" : "Type 346B", range: CFG.RADAR.RANGE } }); const { x, y } = spot(t, k), d = -SIDE[t]; // patrol box ahead of the spawn (toward the other team)
-      c.x = x; c.y = y; c.hdg = t === "A" ? 0 : 180; c.ordHdg = c.hdg; c.type = type; c.pids = []; c.ai = newAi((seed | 0) + out.length * 131 + 11, [[x + 10, y + 2 * d], [x + 10, y + 14 * d], [x - 10, y + 14 * d], [x - 10, y + 2 * d]]); initUnit(c, TEAM[t], "ai", (seed | 0) + out.length * 137 + 13); return c; };
+      c.x = x; c.y = y; c.hdg = t === "A" ? 0 : 180; c.ordHdg = c.hdg; c.type = type; c.pids = []; c.ai = newAi((seed | 0) + out.length * 131 + 11, [[x, y + 14 * d], [x + 10, y + 14 * d], [x + 10, y + 2 * d], [x - 10, y + 2 * d], [x - 10, y + 14 * d]]); initUnit(c, TEAM[t], "ai", (seed | 0) + out.length * 137 + 13); return c; };
     for (const t of ["A", "B"]) {
       const list = [];
       if (room.mode === "crew") room.ships[t].forEach((sh, i) => { const pids = room.players.filter(p => p.team === t && p.ship === i).map(p => p.id); list.push({ type: sh.type, pids, roles: sh.roles }); });
@@ -569,7 +569,7 @@
   // cmd = {type, ...args}. ctx = {radar, contacts (incl. FIX markers), missiles}. The same validator for everyone: the owning station must be alive and, if the unit has `holds` (crew), held by the issuer.
   const AI_RADAR = { on: true }; // AI units are never in player EMCON for jamming/LINK rules (their radar duty cycle is separate)
   const CMD_STN = { set_course: 0, set_speed: 0, emcon: 1, radar: 1, link: 1, identify: 1, cancel_identify: 1, tag: 1, fire: 2, cancel_fire: 2, ecm: 3, deploy_decoy: 3, launch_sam: 3, ciws: 3 }; // index into dead[] / STN
-  const STN_LONG = ["NAVIGATION", "SENSORS", "WEAPONS", "DEFENSE"];
+  const STN_LONG = ["BRIDGE", "SENSORS", "WEAPONS", "DEFENSE"];
   function command(u, cmd, ctx) {
     const R = (ok, msg) => ({ ok, msg: msg || "" }), st = cmd && CMD_STN[cmd.type];
     if (cmd && (cmd.type === "take_station" || cmd.type === "release_station")) { // crew: hold or give up a station (unit.holds unset = all held; solo)

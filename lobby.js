@@ -1,7 +1,7 @@
 // Room (pre-match) state: players and teams. Pure and DOM-free; the host owns it and broadcasts {t:"room"} to guests. Teams: "A", "S" (spectators), "B".
 (function (root) {
   const SHIP_TYPES = [{ id: "ddg51", name: "Arleigh Burke (DDG-51)" }]; // more as units get added
-  const ROLES = ["NAVIGATION", "SENSORS", "WEAPONS", "DEFENSE"]; // = station index 0..3
+  const ROLES = ["BRIDGE", "SENSORS", "WEAPONS", "DEFENSE"]; // = station index 0..3
   const CREW = 4, MAX_SHIPS = 8;
   const mkShip = () => ({ type: SHIP_TYPES[0].id, cap: null, roles: [null, null, null, null], ready: false });
   const newRoom = (o, hostId, hostName) => { const mode = o.mode === "solo" ? "solo" : "crew";

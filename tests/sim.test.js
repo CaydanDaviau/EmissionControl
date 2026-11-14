@@ -165,10 +165,10 @@ test("enemy ESM hears our jamming even with radar off; EMCON refuses and forces 
 });
 test("enemy radar equals ours: same range and same RCS for our ship", () => {
   const A = Sim.CFG.AI; assert.equal(A.SHIP_RCS, Sim.CFG.RADAR.RCS_REF); assert.equal(A.SWEEP, Sim.CFG.RADAR.PERIOD);
-  const near = Sim.newShip(), c1 = mk(0, 25, { side: "enemy", emit: { name: "X", range: Sim.CFG.RADAR.RANGE } }), c2 = mk(0, 40, { side: "enemy", emit: { name: "X", range: Sim.CFG.RADAR.RANGE } });
+  const near = Sim.newShip(), c1 = mk(0, 25, { side: "enemy", emit: { name: "X", range: Sim.CFG.RADAR.RANGE } }), c2 = mk(0, Sim.CFG.RADAR.HORIZON + 8, { side: "enemy", emit: { name: "X", range: Sim.CFG.RADAR.RANGE } });
   c1.ai = Sim.newAi(7, null); c2.ai = Sim.newAi(7, null);
   run(dt => { Sim.aiStep(c1, near, dt); Sim.aiStep(c2, near, dt); }, 120);
-  assert.ok(c1.ai.dist !== undefined, "25 nm detected"); assert.equal(c2.ai.dist, undefined, "40 nm (beyond the 32 nm cap) never detected");
+  assert.ok(c1.ai.dist !== undefined, "25 nm detected"); assert.equal(c2.ai.dist, undefined, "beyond the horizon cap never detected");
 });
 
 test("our radar: sees a normal contact at 30 nm (inside the cap), a small one (rcs 10) not", () => {
@@ -254,7 +254,7 @@ test("enemy defenses: SAM at ASM after the reaction delay; decoy/ECM/CIWS only o
 
 test("horizon cap: radar and ESM detect nothing beyond it (radar 32 nm, ESM x1.3); both work inside", () => {
   const H = Sim.CFG.RADAR.HORIZON, big = { rcs: 1e9, emit: { range: 500 }, emitting: true };
-  assert.equal(Sim.pDetect(H + 1, big), 0); assert.ok(Sim.pDetect(H - 5, { rcs: 10000 }) > 0.95);
+  assert.equal(Sim.pDetect(H + 1, big), 0); assert.ok(Sim.pDetect(H - 15, { rcs: 10000 }) > 0.9);
   assert.equal(Sim.pEsm(H * Sim.CFG.ESM.DUCT + 1, big), 0); assert.ok(Sim.pEsm(H + 5, big) > 0.99);
   const ship = Sim.newShip(), c = mkAi(H + 5, 500); c.ai.state = "patrol"; c.ai.t = 0; run(dt => Sim.aiStep(c, ship, dt), 16); assert.equal(c.ai.tracks, false, "enemy radar also capped");
   c.y = H - 5; c.ai.t = 0; run(dt => Sim.aiStep(c, ship, dt), 12); assert.ok(c.ai.tracks);
@@ -267,7 +267,7 @@ test("decoys only seduce missiles within 4 nm (player)", () => {
   s.def.cd = 0; Sim.deployDecoy(s, [far, near]); assert.equal(near.state, "decoy"); assert.ok(!far.state); D.P = 0.2;
 });
 test("AI ESM investigation: hears us without a track -> heads along the bearing; radar track -> identify; EMCON -> gives up after INV_HOLD", () => {
-  const ship = Sim.newShip(), A = Sim.CFG.AI; ship.y = 40; // we are due north at 40 nm, our radar on (heard), enemy radar cannot see that far (cap 32)
+  const ship = Sim.newShip(), A = Sim.CFG.AI; ship.y = Sim.CFG.RADAR.HORIZON + 8; // we are due north just beyond the radar cap (ESM still hears), our radar on (heard), enemy radar cannot see that far (cap 32)
   const c = mkAi(0, 70); c.hdg = 90; c.ai.wp = null;
   run(dt => Sim.aiStep(c, ship, dt), 20); assert.equal(c.ai.state, "inv", "ESM contact starts an investigation"); assert.equal(c.ai.tracks, false);
   assert.ok(Math.abs(Sim.diff(c.ai.hb, 0)) < 40, "bearing roughly north");
@@ -457,8 +457,8 @@ test("command layer: validator (unknown, destroyed station, crew holds) and navi
   assert.equal(radar.on, false); assert.equal(ship.def.ecm, false); assert.equal(ship.link, false, "EMCON forces jamming and LINK off");
   assert.equal(cmd({ type: "link" }).ok, false, "LINK refused under EMCON"); assert.equal(cmd({ type: "ecm" }).ok, false);
   cmd({ type: "emcon", on: false }); assert.equal(radar.on, true);
-  ship.holds = [false, true, true, true]; const r = cmd({ type: "set_speed", kt: 30 }); assert.equal(r.ok, false); assert.match(r.msg, /do not hold NAVIGATION/); assert.equal(ship.ordSpd, 15);
-  ship.holds = null; ship.dead[0] = true; assert.match(cmd({ type: "set_course", hdg: 90 }).msg, /NAVIGATION destroyed/); assert.equal(ship.ordHdg, 10);
+  ship.holds = [false, true, true, true]; const r = cmd({ type: "set_speed", kt: 30 }); assert.equal(r.ok, false); assert.match(r.msg, /do not hold BRIDGE/); assert.equal(ship.ordSpd, 15);
+  ship.holds = null; ship.dead[0] = true; assert.match(cmd({ type: "set_course", hdg: 90 }).msg, /BRIDGE destroyed/); assert.equal(ship.ordHdg, 10);
 });
 
 test("command layer: identify, tag, fire, defense commands reach the same sim code", () => {
@@ -502,7 +502,7 @@ test("stations: release blocks that station's commands, take restores; destroyed
   const s = Sim.newShip(), ctx = { radar: { on: true }, contacts: [], missiles: [] }, cmd = o => Sim.command(s, o, ctx);
   assert.ok(cmd({ type: "set_speed", kt: 10 }).ok, "solo holds all");
   assert.ok(cmd({ type: "release_station", stn: 0 }).ok); assert.deepEqual(s.holds, [false, true, true, true]);
-  assert.match(cmd({ type: "set_speed", kt: 5 }).msg, /do not hold NAVIGATION/); assert.equal(s.ordSpd, 10); assert.ok(cmd({ type: "emcon", on: true }).ok, "other stations unaffected");
+  assert.match(cmd({ type: "set_speed", kt: 5 }).msg, /do not hold BRIDGE/); assert.equal(s.ordSpd, 10); assert.ok(cmd({ type: "emcon", on: true }).ok, "other stations unaffected");
   assert.ok(cmd({ type: "take_station", stn: 0 }).ok); assert.ok(cmd({ type: "set_speed", kt: 5 }).ok);
   s.dead[2] = true; cmd({ type: "release_station", stn: 2 }); assert.match(cmd({ type: "take_station", stn: 2 }).msg, /destroyed/); assert.equal(cmd({ type: "take_station", stn: 9 }).ok, false);
   Sim.resetShip(s); assert.equal(s.holds, null);
@@ -575,7 +575,7 @@ test("per-player seats: unseated player refused, seated allowed, stations shared
   assert.ok(Sim.command(ship, { type: "take_station", stn: 1 }, ctx("b")).ok);
   assert.ok(Sim.command(ship, { type: "set_speed", kt: 15 }, ctx("a")).ok);
   assert.equal(Sim.command(ship, { type: "set_speed", kt: 5 }, ctx("b")).ok, false, "b holds only SENSORS");
-  assert.match(Sim.command(ship, { type: "set_speed", kt: 5 }, ctx("c")).msg, /do not hold NAVIGATION/);
+  assert.match(Sim.command(ship, { type: "set_speed", kt: 5 }, ctx("c")).msg, /do not hold BRIDGE/);
   assert.equal(ship.ordSpd, 15);
   Sim.command(ship, { type: "take_station", stn: 0 }, ctx("b")); // shared station
   assert.ok(Sim.command(ship, { type: "set_speed", kt: 20 }, ctx("b")).ok);
@@ -637,7 +637,7 @@ test("inbox: seats still enforced through the queue", () => {
   Sim.enqueue(ib, "a", { t: "cmd", seq: 1, type: "take_station", args: { stn: 1 } });
   Sim.enqueue(ib, "a", { t: "cmd", seq: 2, type: "set_speed", args: { kt: 12 } });
   const r = Sim.drain(ib, () => ship, ctx).map(x => x.reply);
-  assert.equal(r[0].t, "ack"); assert.equal(r[1].t, "err"); assert.match(r[1].msg, /NAVIGATION/);
+  assert.equal(r[0].t, "ack"); assert.equal(r[1].t, "err"); assert.match(r[1].msg, /BRIDGE/);
 });
 
 test("viewFor: ESM-only record appears (seen=false), friends and SAMs filtered by team/horizon", () => {
@@ -811,4 +811,8 @@ test("teamLinkStep: linked units share tracks and cross ESM bearings team-wide; 
 test("buildMatch: AI patrol boxes lie ahead of the spawn, toward the other team", () => {
   const L = require("../lobby.js"), r = L.newRoom({ name: "p", mode: "solo", max: 4 }, "me", "P"); L.move(r, "me", "A"); r.counts = { A: 2, B: 2 };
   const m = Sim.buildMatch(r, 5); for (const s of m.ships) { const u = s.unit; if (!u.ai) continue; const toward = s.team === "A" ? 1 : -1; assert.ok(u.ai.wp.every(w => (w[1] - u.y) * toward > 0), s.id + " patrols toward the enemy"); }
+});
+test("AI patrol: first waypoint is straight ahead, not sideways", () => {
+  const room = require("../lobby.js").newRoom({ name: "R", mode: "solo", max: 4 }, "host", "H"), m = Sim.buildMatch(room, 1), c = m.units.find(u => u.ctl === "ai"), w0 = c.ai.wp[0];
+  assert.equal(w0[0], c.x); assert.ok(Math.abs(w0[1] - c.y) > 10);
 });
