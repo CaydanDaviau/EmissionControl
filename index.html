@@ -90,6 +90,7 @@ tr.sel{background:#2a2f33}
 .navnot #secSpd button,.navnot #secHdg button,.navnot #secHdg input{pointer-events:none;opacity:.4}
 .ov .stnrow{display:flex;gap:6px;width:220px}
 #mp .mpw{width:280px;display:flex;flex-direction:column;gap:8px}#mp .mpw#mpTabs{flex-direction:row}#mp .mpi{width:100%;box-sizing:border-box;padding:10px;background:#0c0d0e;color:#ddd;border:1px solid var(--dim);font-size:14px}#mp button{width:100%}#mp #mpTabs button{flex:1;width:auto;padding:9px 0;font-size:11px}#mp button.mps{width:auto;padding:8px 12px;font-size:12px}#mp .mpr{display:flex;justify-content:space-between;align-items:center;font-size:13px;color:#ccc}#mp .mpstep{display:flex;gap:10px;align-items:center}#mp .mpstep button{padding:6px 14px}
+#sp .spw{width:280px;display:flex;flex-direction:column;gap:12px}#sp .spw>button{width:100%}#sp .spr{display:flex;justify-content:space-between;align-items:center;font-size:13px;color:#ccc;gap:8px}#sp .spst{display:flex;gap:10px;align-items:center}#sp button.sps{width:auto;padding:8px 12px;font-size:12px}#sp .spi{width:55%;box-sizing:border-box;padding:8px;background:#0c0d0e;color:#ddd;border:1px solid var(--dim);font-size:12px}
 #room .rsec{border:1px solid var(--dim);padding:8px}#room .rsec h3{margin:0 0 6px;font-size:12px;letter-spacing:2px;font-weight:normal;color:#aaa;display:flex;justify-content:space-between}#room .rp{display:flex;justify-content:space-between;align-items:center;padding:4px 0;font-size:14px;color:#ddd}#room .rp button{width:auto;padding:5px 14px;margin-left:6px;font-size:13px}#room .rp .me{color:#3fbf8a}#room .shp{border:1px solid #2a2d30;margin-top:6px;padding:6px;background:#0c0d0e}#room .shp .sh{display:flex;justify-content:space-between;gap:8px;font-size:12px;color:#ccc;margin-bottom:4px}#room .slot{display:flex;justify-content:space-between;align-items:center;padding:4px 6px;font-size:13px;color:#ddd;border:1px solid transparent}#room .slot.free{color:#666}#room .slot.tap{border:1px dashed #3fbf8a;color:#3fbf8a;cursor:pointer}#room .slot.sel{background:var(--act);border-color:#3fbf8a}#room .roles{display:flex;flex-wrap:wrap;gap:4px;margin-top:6px}#room .roles button,#room .ctl button{width:auto;padding:5px 8px;font-size:11px}#room .ctl{display:flex;gap:4px;margin-top:6px;flex-wrap:wrap}#room .ready{color:#3fbf8a}#room .none{font-size:12px;color:#666}
 #mp .rm{border:1px solid var(--dim);padding:9px;font-size:13px;color:#ddd;cursor:pointer}#mp .rm .rh{display:flex;justify-content:space-between}#mp .rm .rd{margin-top:8px;font-size:12px;color:#aaa;display:flex;flex-direction:column;gap:6px;cursor:default}.ov .stnrow button{flex:1;width:auto;padding:9px 0;font-size:11px}
 #navDeadSec{display:none;color:#ff4a4a;letter-spacing:2px;text-align:center}.navdead #navDeadSec{display:block}
@@ -214,7 +215,7 @@ body.guest .dbg,body.guest #tsB{display:none}
     </div>
   </div>
 </div>
-<div class="ov show" id="menu"><h1>EMCON</h1><button id="startB">START</button><button id="setB">&#9881; SETTINGS</button><button id="mpB">MULTIPLAYER</button><div class="stnrow" id="stnRow"><button data-i="0"></button><button data-i="1"></button><button data-i="2"></button><button data-i="3"></button></div><button id="dbgR" class="dbg">DEBUG: REPAIR / RESET</button></div>
+<div class="ov show" id="menu"><h1>EMCON</h1><button id="startB" style="display:none">RESUME</button><button id="spB">SINGLEPLAYER</button><button id="mpB">MULTIPLAYER</button><button id="setB">&#9881; SETTINGS</button><button id="dbgR" class="dbg">DEBUG: REPAIR / RESET</button></div>
 
 <div class="ov" id="mp" style="justify-content:flex-start;overflow:auto;padding:18px 0;gap:10px"><h1>MULTIPLAYER</h1>
 <input id="mpName" class="mpi" style="width:280px" maxlength="16" placeholder="Your name">
@@ -233,6 +234,12 @@ body.guest .dbg,body.guest #tsB{display:none}
 <div class="ov" id="room" style="justify-content:flex-start;overflow:auto;padding:18px 0;gap:10px"><h1 id="rmTitle" style="font-size:20px;margin:0"></h1><div id="rmInfo" style="font-size:12px;color:#aaa"></div>
 <div id="rmBody" style="width:300px;display:flex;flex-direction:column;gap:10px"></div>
 <button id="rmStart" style="display:none;width:300px">START NOW (temporary)</button><button id="rmLeave" style="width:300px">LEAVE ROOM</button></div>
+<div class="ov" id="sp" style="justify-content:flex-start;overflow:auto;padding:18px 0;gap:10px"><h1>SINGLEPLAYER</h1>
+<div class="spw"><div class="spr"><span>Your team (you + AI)</span><span class="spst"><button id="spADec" class="sps">-</button><b id="spA"></b><button id="spAInc" class="sps">+</button></span></div>
+<div class="spr"><span>Enemy team (AI)</span><span class="spst"><button id="spBDec" class="sps">-</button><b id="spB2"></b><button id="spBInc" class="sps">+</button></span></div>
+<div class="spr"><span>Map</span><select id="spMap" class="spi"><option value="default">Open sea (70 NM, 5 slots/side)</option></select></div>
+<div class="spr"><span>Ship</span><button id="spShip" class="sps"></button></div>
+<button id="spGo">START</button><button id="spBack">BACK</button></div></div>
 <div class="ov" id="shipSel"><h1 style="font-size:20px">SELECT SHIP</h1><div id="ssList" style="width:260px;display:flex;flex-direction:column;gap:8px"></div><button id="ssLoad" disabled style="width:260px;opacity:.4">LOADOUT (soon)</button><button id="ssBack" style="width:260px">BACK</button></div>
 <div class="ov" id="settings"><h1>SETTINGS</h1><div class="row"><span class="lbl">Radar sweep</span><button id="sweepB" style="width:100px">On</button></div><button id="backB">BACK</button></div>
 <script src="sim.js"></script>
@@ -260,11 +267,12 @@ document.querySelectorAll(".stb").forEach(b=>b.onclick=()=>showStation(stIdx+Num
 const RANGES=[5,10,20,40,70,100,150,200,300];
 const TS=[1,5,20];
 const missiles=[]; // missiles in flight (shared with the world)
-const room0=Lobby.newRoom({name:"offline",mode:"solo",max:4},"me","Player"); Lobby.move(room0,"me","A"); // offline = a solo 2v2 room: you + an escort ally against two enemies
+let SPO={a:2,b:2,ship:"ddg51"}; try{ Object.assign(SPO,JSON.parse(localStorage.getItem("emcon.spopt")||"{}")); }catch(e){} SPO.a=Math.max(1,Math.min(5,SPO.a|0||2)); SPO.b=Math.max(1,Math.min(5,SPO.b|0||2));
+const room0=Lobby.newRoom({name:"offline",mode:"solo",max:10},"me","Player"); Lobby.move(room0,"me","A"); room0.counts={A:SPO.a,B:SPO.b}; room0.players[0].type=SPO.ship; // offline = a solo room on Open sea: you + (a-1) AI allies vs b AI enemies (singleplayer options screen)
 const WORLD=Sim.newWorld(Sim.offlineScenario(Sim.buildMatch(room0,20261114)),missiles), ship=WORLD.ref;
 const LAT0=41+11.295/60, LON0=21+26.496/60;
 const TK=c=>c.marker?c:Sim.trkOf(ship,c); // the player's track record for a contact (fix markers carry their own fields)
-const contacts=WORLD.units.filter(u=>u.team!==ship.team), ally=WORLD.units.find(u=>u!==ship&&u.team===ship.team), all=()=>contacts.concat(ship.fixes); // ship.fixes = ESM crossing markers (5 s)
+const contacts=WORLD.units.filter(u=>u.team!==ship.team), allies=WORLD.units.filter(u=>u!==ship&&u.team===ship.team), ally=allies[0]||(()=>{ const a=Sim.newAlly(1e6,1e6); a.sunk=a.wreck=true; a.dead=[true,true,true,true]; return a; })(), drawAllies=()=>guest?[ally]:allies, all=()=>contacts.concat(ship.fixes); // ship.fixes = ESM crossing markers (5 s)
 const cid=v=>/^\d+$/.test(String(v))?+v:v, lbl=c=>c.marker?"FIX E"+TK(c).esmNo:String(c.id).padStart(4,"0"); 
 const radar=ship.radar, esm=ship.esmS;
 let sweepOn=true; try{ sweepOn=localStorage.getItem("emcon.sweep")!=="0"; }catch(e){}
@@ -368,11 +376,11 @@ function draw(){
     if(S.labels&&!c.sunk){ g.globalAlpha=Math.max(al,0.3); g.fillStyle=COL[TK(c).cls]; g.textAlign="left"; g.textBaseline="middle"; g.fillText(String(c.id).padStart(4,"0"),11,0); }
     g.restore();
   }
-  { const dx=ally.x-ship.x, dy=ally.y-ship.y, r=Math.hypot(dx,dy); if(r<=range){ const b=Math.atan2(dx,dy)-rot*Math.PI/180, sx=cx+Math.sin(b)*r*px, sy=cy-Math.cos(b)*r*px; // ally A1: blue circle
+  for(const ally of drawAllies()){ const dx=ally.x-ship.x, dy=ally.y-ship.y, r=Math.hypot(dx,dy); if(r<=range){ const b=Math.atan2(dx,dy)-rot*Math.PI/180, sx=cx+Math.sin(b)*r*px, sy=cy-Math.cos(b)*r*px; // allies A1..: blue circle
     g.save(); const dd=ally.sunk; g.strokeStyle=dd?"#ff4a4a":COL.ally; g.fillStyle=g.strokeStyle; g.lineWidth=1.6; g.beginPath();
     if(ally.wreck){ g.moveTo(sx-7,sy-7); g.lineTo(sx+7,sy+7); g.moveTo(sx+7,sy-7); g.lineTo(sx-7,sy+7); } else g.arc(sx,sy,5.5,0,Math.PI*2); g.stroke(); // destroyed: red circle while drifting, red X as a wreck
     if(!ally.sunk){ const a=A(ally.hdg); g.beginPath(); g.moveTo(sx+Math.cos(a)*5,sy+Math.sin(a)*5); g.lineTo(sx+Math.cos(a)*20,sy+Math.sin(a)*20); g.stroke(); } // ally heading line
-    if(S.labels){ g.textAlign="left"; g.textBaseline="middle"; g.fillText(ally.wreck?"A1 WRECK":"A1",sx+11,sy); } g.restore(); } }
+    if(S.labels){ g.textAlign="left"; g.textBaseline="middle"; g.fillText(ally.wreck?ally.id+" WRECK":String(ally.id||"A1"),sx+11,sy); } g.restore(); } }
   // own missiles: small triangle pointing along heading + velocity vector
   for(const m of missiles){ const dx=m.x-ship.x, dy=m.y-ship.y, r=Math.hypot(dx,dy); if(r>range) continue;
     const b=Math.atan2(dx,dy)-rot*Math.PI/180, sx=cx+Math.sin(b)*r*px, sy=cy-Math.cos(b)*r*px, a=A(m.hdg), ux=Math.cos(a), uy=Math.sin(a);
@@ -394,7 +402,7 @@ function draw(){
     g.save(); g.translate(cx+Math.sin(b)*r*px,cy-Math.cos(b)*r*px); g.fillStyle="#ff3b3b";
     g.beginPath(); g.moveTo(ux*R,uy*R); g.lineTo(R*(-0.5*ux-h*uy),R*(-0.5*uy+h*ux)); g.lineTo(R*(-0.5*ux+h*uy),R*(-0.5*uy-h*ux)); g.closePath(); g.fill(); g.restore(); } }
   // ally SAMs: same filled triangle, blue
-  for(const q of ally.def.sams){ const dx=q.x-ship.x, dy=q.y-ship.y, r=Math.hypot(dx,dy); if(r>range) continue;
+  for(const q of drawAllies().flatMap(a=>a.def.sams)){ const dx=q.x-ship.x, dy=q.y-ship.y, r=Math.hypot(dx,dy); if(r>range) continue;
     const b=Math.atan2(dx,dy)-rot*Math.PI/180, a=A(q.hdg||0), ux=Math.cos(a), uy=Math.sin(a), R=6, h=0.8660254;
     g.save(); g.translate(cx+Math.sin(b)*r*px,cy-Math.cos(b)*r*px); g.fillStyle="#3d8bff";
     g.beginPath(); g.moveTo(ux*R,uy*R); g.lineTo(R*(-0.5*ux-h*uy),R*(-0.5*uy+h*ux)); g.lineTo(R*(-0.5*ux+h*uy),R*(-0.5*uy-h*ux)); g.closePath(); g.fill(); g.restore(); }
@@ -607,11 +615,18 @@ cv.addEventListener("pointerdown",e=>{
 // ---- menu / settings ----
 function showMenu(on){ S.paused=on; $("menu").classList.toggle("show",on); }
 function sweepUi(){ $("sweepB").textContent=sweepOn?"On":"Off"; $("sweepB").classList.toggle("off",!sweepOn); }
-$("startB").onclick=()=>{ $("startB").textContent="RESUME"; showMenu(false); };
+$("startB").onclick=()=>{ $("startB").style.display=""; showMenu(false); }; // RESUME (hidden until a game is running)
+try{ if(sessionStorage.getItem("emcon.spgo")){ sessionStorage.removeItem("emcon.spgo"); $("startB").click(); } }catch(e){} // a singleplayer START reloads the page with the chosen options and goes straight into the game
+function spUi(){ $("spA").textContent=SPO.a; $("spB2").textContent=SPO.b; const t=Lobby.SHIP_TYPES.find(x=>x.id===SPO.ship); $("spShip").textContent=t?t.name:SPO.ship; }
+$("spB").onclick=()=>{ $("menu").classList.remove("show"); $("sp").classList.add("show"); spUi(); };
+$("spBack").onclick=()=>{ $("sp").classList.remove("show"); $("menu").classList.add("show"); };
+for(const [id,k,d] of [["spADec","a",-1],["spAInc","a",1],["spBDec","b",-1],["spBInc","b",1]]) $(id).onclick=()=>{ SPO[k]=Math.max(1,Math.min(5,SPO[k]+d)); spUi(); };
+$("spShip").onclick=()=>{ const el=$("ssList"); el.innerHTML=""; for(const t of Lobby.SHIP_TYPES){ const b=document.createElement("button"); b.style.width="260px"; b.textContent=t.name; b.classList.toggle("on",t.id===SPO.ship); b.onclick=()=>{ SPO.ship=t.id; $("shipSel").classList.remove("show"); spUi(); }; el.appendChild(b); } $("shipSel").classList.add("show"); };
+$("spGo").onclick=()=>{ try{ localStorage.setItem("emcon.spopt",JSON.stringify(SPO)); sessionStorage.setItem("emcon.spgo","1"); }catch(e){} location.reload(); };
 $("menuB").onclick=()=>showMenu(true);
 let mpS=null; const mpLog=s=>{ $("mpLog").textContent=s; };
 const mpNames={}; let mpRun=false, mpRoom=null, mpSeq=0, mpTick=0; const mpInbox=Sim.newInbox(), mpOpen=new Set();
-const mpUnits=()=>[ship,ally].concat(contacts), mpCtx=()=>({radar:ship.radar,contacts:all(),missiles});
+const mpUnits=()=>[ship].concat(allies,contacts), mpCtx=()=>({radar:ship.radar,contacts:all(),missiles});
 // ---- guest: the real UI runs on shadow objects (ship / contacts / missiles / ally) filled from the host's filtered view; every action goes to the host as a cmd message ----
 function applyView(v){
   const o=v.own, oh=ship.ordHdg, os=ship.ordSpd, now=performance.now();
@@ -636,7 +651,7 @@ function applyView(v){
 function guestView(v,ts){ gTs=ts===undefined?1:ts;
   const first=!guest; guest=true; $("room").classList.remove("show"); if(first){ ship.trk={}; gC.clear(); } // drop the track records of the local game: the shadow contacts get their own
   applyView(v);
-  if(first){ document.body.classList.add("guest"); $("mp").classList.remove("show"); showMenu(false); $("startB").textContent="RESUME"; $("aiDbg").style.display="none"; seenHit=ship.hitSeq; seenStrike=ship.strikeSeq||0; ui(); sensUi(); applyDmg(); }
+  if(first){ document.body.classList.add("guest"); $("mp").classList.remove("show"); showMenu(false); $("startB").style.display=""; $("aiDbg").style.display="none"; seenHit=ship.hitSeq; seenStrike=ship.strikeSeq||0; ui(); sensUi(); applyDmg(); }
 }
 function guestCmd(o){ const a=Object.assign({},o), now=performance.now(); delete a.type;
   if(o.type==="set_course"&&isFinite(+o.hdg)){ ship.ordHdg=Sim.norm(+o.hdg); gHold.hdg=now+1200; } else if(o.type==="set_speed"&&isFinite(+o.kt)){ ship.ordSpd=+o.kt; gHold.spd=now+1200; }
@@ -730,13 +745,11 @@ $("sweepB").onclick=()=>{ sweepOn=!sweepOn; try{localStorage.setItem("emcon.swee
 sweepUi();
 // ---- damage: destroyed stations show DESTROYED; debug buttons live in the menu ----
 const STN_SHORT=["NAV","SENS","WPN","DEF"];
-for(const b of $("stnRow").children) b.onclick=()=>{ const i=+b.dataset.i, held=!ship.holds||ship.holds[i]; cmdr({type:held?"release_station":"take_station",stn:i}); applyDmg(); };
 function applyDmg(){ const hd=i=>!ship.holds||ship.holds[i]; // stations you do not hold: view only
   $("navPage").classList.toggle("navnot",!hd(0)); $("sensPage").classList.toggle("nothold",!hd(1)&&!ship.dead[1]); $("wpnPage").classList.toggle("nothold",!hd(2)&&!ship.dead[2]); $("defPage").classList.toggle("nothold",!hd(3)&&!ship.dead[3]);
-  for(const b of $("stnRow").children){ const i=+b.dataset.i; b.textContent=STN_SHORT[i]+(ship.dead[i]?" X":hd(i)?" \u2713":" \u2014"); b.classList.toggle("on",hd(i)&&!ship.dead[i]); }
   $("sensPage").classList.toggle("dead",ship.dead[1]); $("wpnPage").classList.toggle("dead",ship.dead[2]);
   $("defPage").classList.toggle("dead",ship.dead[3]); $("navPage").classList.toggle("navdead",ship.dead[0]); }
-$("dbgR").onclick=()=>{ Sim.resetShip(ship); radar.on=true; missiles.length=0; ship.fixes.length=0; Sim.resetAlly(ally,15,0); ship.linkMsg=""; for(const c of contacts) if(c.ai) Sim.resetEnemy(c); msel=null; defMsg=""; bannerT=0; applyDmg(); sensUi(); };
+$("dbgR").onclick=()=>{ Sim.resetShip(ship); radar.on=true; missiles.length=0; ship.fixes.length=0; for(const a of allies) Sim.resetAlly(a,a.x,a.y); ship.linkMsg=""; for(const c of contacts) if(c.ai) Sim.resetEnemy(c); msel=null; defMsg=""; bannerT=0; applyDmg(); sensUi(); };
 
 // ---- loop ----
 let last=performance.now();
@@ -755,7 +768,7 @@ function frame(t){
   hud(); draw(); if(stIdx===1) identPanel(); if(stIdx===2) wpnPanel(); if(stIdx===3) defPanel(); requestAnimationFrame(frame);
 }
 $("sensPage").insertAdjacentHTML("beforeend",'<div class="note" id="aiDbg" style="border-top:1px dashed #555;margin-top:8px;padding-top:6px"></div>');
-function aiDbg(){ $("aiDbg").innerHTML=contacts.map(c=>dbgOne(c)).concat([dbgOne(ally,"ALLY A1")]).join("<hr>"); }
+function aiDbg(){ $("aiDbg").innerHTML=contacts.map(c=>dbgOne(c)).concat(allies.map(a=>dbgOne(a,"ALLY "+a.id))).join("<hr>"); }
 const slotOf=(c,w)=>c.loadout.find(l=>l.w===w);
 function dbgOne(c,lb){ const a=c.ai; return "DEBUG "+(lb||"ENEMY "+c.id)+(a.fix?" · FIX known"+(a.fix.host?" (hostile)":""):"")+"<br>Radar: "+(c.emitting?"ON":"off")+" ("+Math.round(a.t%60)+"/60 s)<br>Primary track: "+(a.tracks?Math.round(a.q*100)+"%":"no")+"<br>Hears emitters: "+(a.hears?"yes, BRG "+pad3(a.hears.brg):"no")+"<br>Range: "+Math.hypot(c.x-ship.x,c.y-ship.y).toFixed(1)+" nm<br>State: "+a.state+(a.known?" ("+a.known+")":"")+(a.state==="id"?" \u00b7 ID "+Math.round(a.idp*100)+"%":"")+(a.state==="inv"?" \u00b7 BRG "+pad3(a.hb):"")+"<br>Next launch in: "+Math.ceil(a.cd)+" s · SSM "+slotOf(c,"ssm").ammo+" · ASM "+slotOf(c,"asm").ammo+"<br>Stations: "+["NAV","SENS","WPN","DEF"].map((n,i)=>n+(c.dead[i]?" X":" ok")).join(" · ")+(c.sunk?" · DESTROYED":"")+"<br>Defense: SAM "+c.def.sam+" · decoy "+c.def.decoy+(c.ecm?" · ECM":""); }
 setInterval(()=>{ for(const f of [()=>{ if(!guest) aiDbg(); },fillTable,sensUi,wpnList,defList,applyDmg]) try{ f(); }catch(e){} },500); // one failing refresh must not stop the others

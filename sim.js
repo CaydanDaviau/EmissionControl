@@ -24,7 +24,8 @@
     // Defense (game data, tunable). Decoy: small chance per deploy to seduce each incoming missile (it then flies straight on, unguided). CIWS: fixed chance per second on ONE missile inside its range.
     // SAM: long range, highest kill chance, limited ammo; resolves after flight time. Dead missiles stay as a white X for X_TIME real seconds.
     DEFENSE: { ECM: { NAME: "AN/SLQ-32", RANGE: 20, P: 0.06, EMIT: 40 }, DECOY: { P: 0.2, AMMO: 4, CD: 20, RANGE: 4 }, CIWS: { RANGE: 1, P: 0.1 }, SAM: { RANGE: 25, P: 0.5, AMMO: 16, SPEED: 2000, RELOAD: 20 }, X_TIME: 10, STRAY: 60 },
-    LINK: { EMIT: 25 }, FIX: { LIFE: 5, FRESH: 2.5, MIN_SIN: 0.05, MAXR: 120 }, ALLY: { OFFSET: 15 }, // LINK emits (enemy ESM hears it); FIX = marker where two ESM bearing lines cross: lives LIFE s, bearings count as fresh for FRESH s, lines must cross at > MIN_SIN and < MAXR nm; ALLY = formation slot nm abeam (starboard)
+    LINK: { EMIT: 25 }, FIX: { LIFE: 5, FRESH: 2.5, MIN_SIN: 0.05, MAXR: 120 }, ALLY: { OFFSET: 15 }, MAP: { SEPARATION: 70, SLOTS: 5 }, // MAP = Open sea: distance between the teams (nm) and spawn slots per side
+     // LINK emits (enemy ESM hears it); FIX = marker where two ESM bearing lines cross: lives LIFE s, bearings count as fresh for FRESH s, lines must cross at > MIN_SIN and < MAXR nm; ALLY = formation slot nm abeam (starboard)
     WEAPON: { COUNTDOWN: 5, ARRIVE: 0.5, SEEKER: 5 }, // SEEKER = nm: a missile reaching the last known position hits only if the target is truly within this; // launch countdown (s, real time); arrive radius (nm)
     AI: { DUTY_PERIOD: 60, DUTY_ON: 20, SWEEP: 4, SHIP_RCS: 10000, SHIP_H: 60, H_ANT: 100, COAST: 0.02, TURN: 3, WP_NM: 1, FIRE_Q: 0.5, FIRE_CD: 30, FIX_CD: 180, HOLD: 0.8, BAND: 4, GIVE_UP: 180, REACT_MIN: 2, REACT_MAX: 5, INV_HOLD: 60 }, // HOLD = fraction of its radar range it tries to keep us at (detection edge), BAND = +- nm around that, GIVE_UP = real s without a track before it goes back to patrol; // enemy radar on 20 s of every 60 s; FIRE_Q = min track quality to fire, FIRE_CD = seconds between launches
     IDENTIFY: { TIME: 20, D_REF: 10, MIN: 5, MAX: 90 } // TIME = seconds at D_REF nm for a normal (RCS_REF) contact
@@ -406,28 +407,27 @@
   // Match builder: turns a room (lobby.js state) into units. Team A = blue, B = red. Crew mode: one human ship per crewed ship (seats from the roles; call Lobby.autoRoles first), empty ships = AI. Solo mode: one human ship per player on a team, AI fills each team up to Lobby cap (ceil(max/2)). Spectators get no unit.
   // Returns { units, ships: [{ id, team, type, pids, unit }] } (units = every ship incl. AI; ship.unit.pids lists the crew player ids, [] for AI).
   function buildMatch(room, seed) {
-    const out = [], TEAM = { A: "blue", B: "red" }, SIDE = { A: -1, B: 1 }, GAP = 8, NM = CFG.RADAR.HORIZON + 8; // spawn distance north/south of the origin, spread along x
-    const place = (u, t, k, n) => { u.x = (k - (n - 1) / 2) * GAP; u.y = SIDE[t] * NM / 2; u.hdg = t === "A" ? 0 : 180; u.ordHdg = u.hdg; };
+    const out = [], TEAM = { A: "blue", B: "red" }, SIDE = { A: -1, B: 1 }, GAP = 8, NM = CFG.MAP.SEPARATION; // Open sea: the teams start NM apart (half each side of the origin), 5 spawn slots per side spread along x (centre slot first), extra ships queue behind
+    const SLOTS = CFG.MAP.SLOTS, ORDER = [2, 1, 3, 0, 4], spot = (t, k) => ({ x: (ORDER[k % SLOTS] - (SLOTS - 1) / 2) * GAP, y: SIDE[t] * (NM / 2 + Math.floor(k / SLOTS) * GAP) });
+    const place = (u, t, k) => { const p = spot(t, k); u.x = p.x; u.y = p.y; u.hdg = t === "A" ? 0 : 180; u.ordHdg = u.hdg; };
     const mkHuman = (id, t, type, pids, seats) => { const u = newShip(); u.id = id; u.pids = pids; u.type = type; initUnit(u, TEAM[t], "human", (seed | 0) + out.length * 101 + 7); u.radar = newRadar((seed | 0) + out.length * 103 + 5);
       u.seats = [0, 1, 2, 3].map(i => seats(i)); return u; };
-    const mkAi = (id, t, type, k, n) => { const c = newContact(id, 0, 1, { side: "enemy", speed: 15, emit: { name: t === "A" ? "AN/SPY-1D" : "Type 346B", range: CFG.RADAR.RANGE } }); const x = (k - (n - 1) / 2) * GAP, y = SIDE[t] * NM / 2;
-      c.x = x; c.y = y; c.hdg = t === "A" ? 0 : 180; c.type = type; c.pids = []; c.ai = newAi((seed | 0) + out.length * 131 + 11, [[x + 10, y + 2], [x + 10, y + 14], [x - 10, y + 14], [x - 10, y + 2]]); initUnit(c, TEAM[t], "ai", (seed | 0) + out.length * 137 + 13); return c; };
+    const mkAi = (id, t, type, k, n) => { const c = newContact(id, 0, 1, { side: "enemy", speed: 15, emit: { name: t === "A" ? "AN/SPY-1D" : "Type 346B", range: CFG.RADAR.RANGE } }); const { x, y } = spot(t, k), d = -SIDE[t]; // patrol box ahead of the spawn (toward the other team)
+      c.x = x; c.y = y; c.hdg = t === "A" ? 0 : 180; c.ordHdg = c.hdg; c.type = type; c.pids = []; c.ai = newAi((seed | 0) + out.length * 131 + 11, [[x + 10, y + 2 * -d], [x + 10, y + 14 * -d], [x - 10, y + 14 * -d], [x - 10, y + 2 * -d]]); initUnit(c, TEAM[t], "ai", (seed | 0) + out.length * 137 + 13); return c; };
     for (const t of ["A", "B"]) {
       const list = [];
       if (room.mode === "crew") room.ships[t].forEach((sh, i) => { const pids = room.players.filter(p => p.team === t && p.ship === i).map(p => p.id); list.push({ type: sh.type, pids, roles: sh.roles }); });
-      else { for (const p of room.players.filter(p => p.team === t)) list.push({ type: p.type, pids: [p.id], roles: null }); const need = Math.ceil(room.max / 2) - list.length; for (let i = 0; i < need; i++) list.push({ type: "ddg51", pids: [], roles: null }); }
+      else { for (const p of room.players.filter(p => p.team === t)) list.push({ type: p.type, pids: [p.id], roles: null }); const need = (room.counts && room.counts[t] != null ? room.counts[t] : Math.ceil(room.max / 2)) - list.length; for (let i = 0; i < need; i++) list.push({ type: "ddg51", pids: [], roles: null }); }
       list.forEach((e, k) => { const id = t.toLowerCase() + (k + 1);
         const u = e.pids.length ? mkHuman(id, t, e.type, e.pids, i => (e.roles ? (e.roles[i] ? [e.roles[i]] : []) : e.pids.slice())) : mkAi(id, t, e.type, k, list.length);
         if (u.ctl === "human") place(u, t, k, list.length); out.push({ id, team: t, type: e.type, pids: e.pids.slice(), unit: u }); }); }
     return { units: out.map(o => o.unit), ships: out };
   }
-  // Offline default scenario on top of a solo 2v2 buildMatch: the player at the origin (no id -> key "own", as the UI expects), the escort ally "A1" 15 nm abeam, enemies 1 and 2 placed like the field-tested scenario (due north 40 nm, bearing 070 at 38 nm) with a patrol box each.
+  // Offline scenario on top of a solo buildMatch: legacy ids the UI expects (the player has no id -> key "own"; allies "A1".. with A1 escorting the player 15 nm abeam; enemies 1..n). Spawns/patrol boxes come from buildMatch (Open sea).
   function offlineScenario(match) {
-    const U = match.units, me = U.find(isShip), al = U.find(u => u !== me && u.team === me.team), en = U.filter(u => u.team !== me.team), spots = [[0, 40], [70, 38]];
-    delete me.id; me.x = 0; me.y = 0; me.hdg = me.ordHdg = 0;
-    al.id = "A1"; al.escort = true; al.ai.wp = null; al.x = CFG.ALLY.OFFSET; al.y = 0; al.hdg = al.ordHdg = 0; al.spd = 0;
-    en.forEach((c, i) => { const [b, R] = spots[i], r = b * Math.PI / 180, x = Math.sin(r) * R, y = Math.cos(r) * R;
-      c.id = i + 1; c.x = x; c.y = y; c.hdg = c.ordHdg = 90; c.ai.wp = [[x + 10, y + 2], [x + 10, y + 14], [x - 10, y + 14], [x - 10, y + 2]]; });
+    const U = match.units, me = U.find(isShip), al = U.filter(u => u !== me && u.team === me.team), en = U.filter(u => u.team !== me.team);
+    delete me.id; al.forEach((u, i) => { u.id = "A" + (i + 1); }); en.forEach((u, i) => { u.id = i + 1; });
+    if (al[0]) { al[0].escort = true; al[0].ai.wp = null; al[0].x = me.x + CFG.ALLY.OFFSET; al[0].y = me.y; }
     return match;
   }
   // ---- world: one list of units drives the whole match (humans and AI alike) ----

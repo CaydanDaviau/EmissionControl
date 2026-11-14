@@ -767,10 +767,11 @@ test("teams: a red human ship is hit by a blue AI missile (own banner), and its 
 test("world: stepWorld runs a 2-human + AI match (moves, sensors, AI, missiles) without errors; humans on both teams sense each other", () => {
   const L = require("../lobby.js"), r = L.newRoom({ name: "R", mode: "solo", max: 4 }, "host", "H"); L.add(r, "g1", "G"); L.move(r, "host", "A"); L.move(r, "g1", "B");
   const W = Sim.newWorld(Sim.buildMatch(r, 11)), A = W.units.find(u => u.id === "a1"), B = W.units.find(u => u.id === "b1"); assert.equal(W.ref, A);
+  A.y = -20; B.y = 20; // Open sea starts 70 nm apart (outside ESM range): move them to a 40 nm gap
   Sim.command(A, { type: "set_speed", kt: 15 }, { radar: A.radar, contacts: [], missiles: W.missiles }); Sim.command(A, { type: "set_course", hdg: 90 }, { radar: A.radar, contacts: [], missiles: W.missiles });
   const x0 = A.x; for (let t = 0; t < 600; t++) Sim.stepWorld(W, 0.1, 0.1 * 5);
   assert.ok(A.x > x0 + 0.5, "ship a1 moved east"); assert.ok(W.units.every(u => Number.isFinite(u.x) && Number.isFinite(u.y)));
-  const rb = Sim.trkOf(A, B); assert.ok(rb.esm, "A's ESM hears B's radar across the 40 nm gap");
+  const rb = Sim.trkOf(A, B); assert.ok(rb.esm, "A's ESM hears B's radar across a 40 nm gap");
   assert.ok(Sim.trkOf(B, A).esm, "B hears A as well");
 });
 
@@ -778,7 +779,14 @@ test("offlineScenario: player (key own), escort ally A1 and enemies 1,2 run unde
   const L = require("../lobby.js"), r = L.newRoom({ name: "o", mode: "solo", max: 4 }, "me", "P"); L.move(r, "me", "A");
   const m = Sim.offlineScenario(Sim.buildMatch(r, 20261114)), W = Sim.newWorld(m), me = W.ref, al = W.units.find(u => u.id === "A1"), en = W.units.filter(u => u.team === "red");
   assert.equal(me.id, undefined); assert.equal(W.units.length, 4); assert.deepEqual(en.map(e => e.id), [1, 2]); assert.ok(al.escort);
-  assert.ok(Math.abs(en[0].y - 40) < 1e-6 && Math.abs(Math.hypot(en[1].x, en[1].y) - 38) < 1e-6);
+  assert.ok(Math.abs(en[0].y - me.y - 70) < 1e-6, "teams start 70 nm apart"); assert.equal(me.x, 0); assert.ok(en[0].x !== en[1].x);
   me.ordSpd = 15; for (let i = 0; i < 600; i++) Sim.stepWorld(W, 0.1, 0.1); // 60 s
-  assert.ok(me.y > 0.1); assert.ok(al.spd > 0); assert.ok(Math.abs(al.x - me.x) < 30);
+  assert.ok(me.y > -34.9); assert.ok(al.spd > 0); assert.ok(Math.abs(al.x - me.x) < 30);
+});
+
+test("buildMatch: per-team counts (uneven) and 5 spawn slots per side, extra ships queue behind", () => {
+  const L = require("../lobby.js"), r = L.newRoom({ name: "c", mode: "solo", max: 4 }, "me", "P"); L.move(r, "me", "A"); r.counts = { A: 1, B: 7 };
+  const m = Sim.buildMatch(r, 3), A = m.ships.filter(s => s.team === "A"), B = m.ships.filter(s => s.team === "B");
+  assert.equal(A.length, 1); assert.equal(B.length, 7);
+  const xs = B.slice(0, 5).map(s => s.unit.x).sort((a, b) => a - b); assert.equal(new Set(xs).size, 5); assert.ok(B.slice(0, 5).every(s => Math.abs(s.unit.y - 35) < 1e-6)); assert.ok(B[5].unit.y > 35);
 });
