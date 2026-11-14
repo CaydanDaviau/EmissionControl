@@ -833,3 +833,10 @@ test("two human ships (host a1 vs guest b1): per-unit commands, viewer-relative 
   Sim.stepMissiles(W.missiles, W.units.filter(u => u !== a1), 1, a1, null, []); Sim.CFG.DAMAGE.P_HIT = 0.9;
   assert.ok(a1.hitSeq >= 1 && /^H1/.test(a1.hitMsg), a1.hitMsg); assert.equal(W.missiles.length, 0);
 });
+test("viewFor: friends carry ESM clock/sensor state; tracks carry every linked friend's bearing (esmF)", () => {
+  const L = require("../lobby.js"), r = L.newRoom({ name: "R", mode: "solo", max: 6 }, "host", "H"); L.move(r, "host", "A"); r.counts = { A: 3, B: 1 };
+  const M = Sim.buildMatch(r, 3), a1 = M.units[0], fr = M.units.filter(u => u.team === a1.team && u !== a1), en = M.units.find(u => u.team !== a1.team);
+  a1.link = true; Sim.trkOf(a1, en).seen = true; for (const f of fr) { const t = Sim.trkOf(f, en); t.esm = { brg: 45, t: 1 }; }
+  const v = Sim.viewFor(M.units, [], a1, null); assert.equal(v.friends.length, 2); assert.ok(v.friends.every(f => typeof f.et === "number" && f.sensDead === false));
+  assert.equal(v.tracks.find(t => t.id === en.id).esmF.length, 2);
+});
