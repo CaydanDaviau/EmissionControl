@@ -1,10 +1,12 @@
 // EMCON signaling server (Cloudflare Worker + Durable Objects). Rooms, public room list, WebRTC signaling relay, TURN credentials.
 // The game itself never passes through here: the host runs the sim and peers talk over WebRTC DataChannels.
-import { genCode, normCode, cleanName, roomInit, route, listRooms, LIMITS } from "./logic.mjs";
+import { genCode, normCode, cleanName, nameKey, roomInit, route, listRooms, LIMITS } from "./logic.mjs";
 
 const CORS = { "access-control-allow-origin": "*", "access-control-allow-methods": "GET,POST,OPTIONS", "access-control-allow-headers": "content-type" };
 const json = (o, status = 200) => new Response(JSON.stringify(o), { status, headers: { ...CORS, "content-type": "application/json" } });
 const hex = n => [...crypto.getRandomValues(new Uint8Array(n))].map(b => b.toString(16).padStart(2, "0")).join("");
+const sha = async s => [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(s)))].map(b => b.toString(16).padStart(2, "0")).join("");
+const NOPE = { "content-type": "application/json" };
 const STUN = { urls: ["stun:stun.cloudflare.com:3478"] };
 
 async function turnServers(env) { // short-lived Cloudflare TURN credentials; falls back to STUN only when not configured or on error
@@ -24,14 +26,26 @@ export default {
     if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
     if (p === "/rooms" && req.method === "POST") {
       let body; try { body = await req.json(); } catch (e) { body = {}; }
-      const init = roomInit(body), token = hex(16);
+      const init = roomInit(body), token = hex(16), salt = hex(8), hash = init.password ? await sha(salt + init.password) : "", lobby = env.LOBBY.get(env.LOBBY.idFromName("main"));
+      delete init.password;
+      if ((await lobby.fetch("https://lobby/taken", { method: "POST", body: JSON.stringify({ key: nameKey(init.name) }) })).status === 409) return json({ error: "A room with this name already exists." }, 409);
       for (let i = 0; i < 8; i++) {
-        const code = genCode(Math.random), r = await env.ROOM.get(env.ROOM.idFromName(code)).fetch("https://room/init", { method: "POST", body: JSON.stringify({ ...init, code, token }) });
-        if (r.status === 200) return json({ code, hostToken: token, max: init.max, public: init.public });
+        const code = genCode(Math.random), room = env.ROOM.get(env.ROOM.idFromName(code)), r = await room.fetch("https://room/init", { method: "POST", body: JSON.stringify({ ...init, code, token, salt, hash }) });
+        if (r.status !== 200) continue;
+        const c = await lobby.fetch("https://lobby/claim", { method: "POST", body: JSON.stringify({ ...init, code, key: nameKey(init.name), locked: !!hash, started: false, players: 0 }) });
+        if (c.status === 409) { await room.fetch("https://room/abort", { method: "POST" }); return json({ error: "A room with this name already exists." }, 409); } // lost a race for the same name
+        return json({ code, hostToken: token, max: init.max, public: init.public, mode: init.mode });
       }
       return json({ error: "Could not allocate a room code." }, 503);
     }
     if (p === "/rooms" && req.method === "GET") { const r = await env.LOBBY.get(env.LOBBY.idFromName("main")).fetch("https://lobby/list"); return new Response(r.body, { headers: { ...CORS, "content-type": "application/json" } }); }
+    if (p === "/join" && req.method === "POST") { // by room name (or code) + password -> {code, ticket}
+      let b; try { b = await req.json(); } catch (e) { b = {}; }
+      let code = normCode(b.code);
+      if (!code) { const f = await env.LOBBY.get(env.LOBBY.idFromName("main")).fetch("https://lobby/find", { method: "POST", body: JSON.stringify({ key: nameKey(b.name) }) }); if (f.status !== 200) return json({ error: "No such room." }, 404); code = (await f.json()).code; }
+      const r = await env.ROOM.get(env.ROOM.idFromName(code)).fetch("https://room/auth", { method: "POST", body: JSON.stringify({ password: String(b.password == null ? "" : b.password).slice(0, LIMITS.PW) }) });
+      return new Response(r.status === 200 ? JSON.stringify({ ...(await r.json()), code }) : await r.text(), { status: r.status, headers: { ...CORS, ...NOPE } });
+    }
     if (p === "/turn") return json({ iceServers: await turnServers(env) });
     const m = p.match(/^\/ws\/([A-Za-z0-9]+)$/);
     if (m) {
@@ -49,24 +63,34 @@ export class Room {
   send(w, o) { try { w.send(JSON.stringify(o)); } catch (e) { /* socket gone */ } }
   async report(meta, except) { // keep the public room list fresh (also the host heartbeat)
     const lobby = this.env.LOBBY.get(this.env.LOBBY.idFromName("main")), n = this.socks(except).length;
-    await lobby.fetch(meta ? "https://lobby/upsert" : "https://lobby/remove", { method: "POST", body: JSON.stringify(meta ? { code: meta.code, name: meta.name, scenario: meta.scenario, public: meta.public, max: meta.max, players: n } : { code: except && except.code }) });
+    await lobby.fetch(meta ? "https://lobby/upsert" : "https://lobby/remove", { method: "POST", body: JSON.stringify(meta ? { code: meta.code, name: meta.name, key: nameKey(meta.name), scenario: meta.scenario, public: meta.public, mode: meta.mode, pvp: meta.pvp, started: !!meta.started, locked: !!meta.hash, max: meta.max, players: n } : { code: except && except.code }) });
   }
   async fetch(req) {
     const url = new URL(req.url);
     if (url.pathname === "/init") {
       if (await this.ctx.storage.get("meta")) return new Response("taken", { status: 409 });
-      const b = await req.json(); await this.ctx.storage.put("meta", { code: b.code, name: b.name, scenario: b.scenario, public: b.public, max: b.max, token: b.token });
+      const b = await req.json(); await this.ctx.storage.put("meta", { code: b.code, name: b.name, scenario: b.scenario, public: b.public, mode: b.mode, pvp: b.pvp, max: b.max, token: b.token, salt: b.salt, hash: b.hash, started: false });
       return new Response("ok");
     }
+    if (url.pathname === "/abort") { await this.ctx.storage.deleteAll(); return new Response("ok"); }
     const meta = await this.ctx.storage.get("meta"); if (!meta) return new Response("No such room", { status: 404 });
+    if (url.pathname === "/auth") { // password check; a locked room hands out a one-minute ticket the WebSocket must present
+      const { password } = await req.json(), socks = this.socks();
+      if (!socks.some(s => s.a.role === "host")) return new Response(JSON.stringify({ error: "Host not connected." }), { status: 409 });
+      if (socks.length >= meta.max) return new Response(JSON.stringify({ error: "Room full." }), { status: 409 });
+      if (!meta.hash) return new Response(JSON.stringify({ ticket: null }));
+      if ((await sha(meta.salt + String(password || ""))) !== meta.hash) return new Response(JSON.stringify({ error: "Wrong password." }), { status: 403 });
+      const ticket = hex(12); await this.ctx.storage.put("t:" + ticket, Date.now() + 60000); return new Response(JSON.stringify({ ticket }));
+    }
     const token = url.searchParams.get("token"), isHost = token !== null;
     if (isHost && token !== meta.token) return new Response("Bad token", { status: 403 });
     const all = this.socks(), host = all.find(s => s.a.role === "host");
-    if (!isHost) { if (!host) return new Response("Host not connected", { status: 409 }); if (all.length >= meta.max) return new Response("Room full", { status: 409 }); }
+    if (!isHost) { if (!host) return new Response("Host not connected", { status: 409 }); if (all.length >= meta.max) return new Response("Room full", { status: 409 });
+      if (meta.hash) { const tk = url.searchParams.get("ticket"), exp = tk && await this.ctx.storage.get("t:" + tk); if (!exp || exp < Date.now()) return new Response("Wrong password.", { status: 403 }); await this.ctx.storage.delete("t:" + tk); } }
     if (isHost && host) host.w.close(1000, "replaced"); // host reconnect: the old socket may not have closed yet
     const [client, server] = Object.values(new WebSocketPair()), id = isHost ? "host" : "g" + hex(2), role = isHost ? "host" : "guest", name = cleanName(url.searchParams.get("name"), isHost ? "Host" : "Guest");
     this.ctx.acceptWebSocket(server); server.serializeAttachment({ id, role, name });
-    this.send(server, { t: "hello", id, role, code: meta.code, max: meta.max, name: meta.name, scenario: meta.scenario });
+    this.send(server, { t: "hello", id, role, code: meta.code, max: meta.max, name: meta.name, scenario: meta.scenario, mode: meta.mode, pvp: meta.pvp });
     if (isHost) this.send(server, { t: "peers", peers: this.socks(server).filter(s => s.a.role === "guest").map(s => ({ id: s.a.id, name: s.a.name })) });
     else if (host) this.send(host.w, { t: "peer", id, name });
     await this.report(meta);
@@ -76,6 +100,7 @@ export class Room {
     const a = ws.deserializeAttachment() || {}, s = typeof data === "string" ? data : "";
     if (!s || s.length > LIMITS.MSG_BYTES) return this.send(ws, { t: "err", msg: "Bad message." });
     let msg; try { msg = JSON.parse(s); } catch (e) { return this.send(ws, { t: "err", msg: "Bad message." }); }
+    if (a.role === "host" && msg && msg.t === "meta") { const meta = await this.ctx.storage.get("meta"); if (meta && typeof msg.started === "boolean") { meta.started = msg.started; await this.ctx.storage.put("meta", meta); await this.report(meta); } return; } // host-only room info (match started)
     const others = this.socks(ws), r = route(a.role, a.id, msg, others.filter(x => x.a.role === "guest").map(x => x.a.id));
     if (r.error) return this.send(ws, { t: "err", msg: r.error });
     if (msg.t === "ping" && a.role === "host") await this.report(await this.ctx.storage.get("meta")); // host heartbeat keeps the room listed
@@ -101,6 +126,13 @@ export class Lobby {
   constructor(ctx) { this.ctx = ctx; }
   async fetch(req) {
     const p = new URL(req.url).pathname, st = this.ctx.storage;
+    if (p === "/taken" || p === "/find" || p === "/claim") { // room names are unique among live rooms (hidden ones too)
+      const b = await req.json(), now = Date.now(), hit = [...(await st.list({ prefix: "r:" })).values()].find(e => e.key === b.key && now - e.updated <= LIMITS.TTL_MS && e.code !== b.code);
+      if (p === "/find") return hit ? new Response(JSON.stringify({ code: hit.code }), { headers: NOPE }) : new Response("none", { status: 404 });
+      if (hit) return new Response("taken", { status: 409 });
+      if (p === "/claim") await st.put("r:" + b.code, { ...b, updated: now });
+      return new Response("ok");
+    }
     if (p === "/upsert") { const b = await req.json(); await st.put("r:" + b.code, { ...b, updated: Date.now() }); return new Response("ok"); }
     if (p === "/remove") { const b = await req.json(); await st.delete("r:" + b.code); return new Response("ok"); }
     const now = Date.now(), all = [...(await st.list({ prefix: "r:" })).entries()];

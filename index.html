@@ -88,7 +88,9 @@ tr.sel{background:#2a2f33}
 .nothold::before{content:"NOT YOUR STATION \2014  VIEW ONLY";display:block;color:#ff9a2e;font-size:11px;letter-spacing:2px;text-align:center;padding:3px}
 .nothold button:not(.stb),.nothold input{pointer-events:none;opacity:.4}
 .navnot #secSpd button,.navnot #secHdg button,.navnot #secHdg input{pointer-events:none;opacity:.4}
-.ov .stnrow{display:flex;gap:6px;width:220px}.ov .stnrow button{flex:1;width:auto;padding:9px 0;font-size:11px}
+.ov .stnrow{display:flex;gap:6px;width:220px}
+#mp .mpw{width:280px;display:flex;flex-direction:column;gap:8px}#mp .mpw#mpTabs{flex-direction:row}#mp .mpi{width:100%;box-sizing:border-box;padding:10px;background:#0c0d0e;color:#ddd;border:1px solid var(--dim);font-size:14px}#mp button{width:100%}#mp #mpTabs button{flex:1;width:auto;padding:9px 0;font-size:11px}#mp button.mps{width:auto;padding:8px 12px;font-size:12px}#mp .mpr{display:flex;justify-content:space-between;align-items:center;font-size:13px;color:#ccc}#mp .mpstep{display:flex;gap:10px;align-items:center}#mp .mpstep button{padding:6px 14px}
+#mp .rm{border:1px solid var(--dim);padding:9px;font-size:13px;color:#ddd;cursor:pointer}#mp .rm .rh{display:flex;justify-content:space-between}#mp .rm .rd{margin-top:8px;font-size:12px;color:#aaa;display:flex;flex-direction:column;gap:6px;cursor:default}.ov .stnrow button{flex:1;width:auto;padding:9px 0;font-size:11px}
 #navDeadSec{display:none;color:#ff4a4a;letter-spacing:2px;text-align:center}.navdead #navDeadSec{display:block}
 #banner{position:absolute;left:0;right:0;bottom:6px;text-align:center;pointer-events:none;z-index:10;color:#ff4a4a;font-weight:bold;font-size:15px;text-shadow:0 0 4px #000;display:none}
 .ov button.dbg{width:220px;padding:9px;font-size:12px;color:var(--dim);border-style:dashed}
@@ -213,13 +215,19 @@ body.guest .dbg,body.guest #tsB{display:none}
 </div>
 <div class="ov show" id="menu"><h1>EMCON</h1><button id="startB">START</button><button id="setB">&#9881; SETTINGS</button><button id="mpB">MULTIPLAYER</button><div class="stnrow" id="stnRow"><button data-i="0"></button><button data-i="1"></button><button data-i="2"></button><button data-i="3"></button></div><button id="dbgR" class="dbg">DEBUG: REPAIR / RESET</button></div>
 
-<div class="ov" id="mp"><h1>MULTIPLAYER</h1>
-<input id="mpName" maxlength="16" placeholder="Your name" style="width:220px;padding:10px;background:#0c0d0e;color:#ddd;border:1px solid var(--dim)">
-<button id="mpHost">HOST ROOM</button>
-<div class="stnrow"><input id="mpCode" maxlength="6" placeholder="CODE" style="flex:1;min-width:0;padding:9px;background:#0c0d0e;color:#ddd;border:1px solid var(--dim);text-transform:uppercase"><button id="mpJoin" style="flex:1">JOIN</button></div>
-<button id="mpList">ROOM LIST</button>
-<div id="mpRooms" style="width:220px;font-size:12px;color:var(--dim)"></div>
-<div id="mpLog" style="width:220px;font-size:12px;min-height:60px;white-space:pre-wrap"></div>
+<div class="ov" id="mp" style="justify-content:flex-start;overflow:auto;padding:18px 0;gap:10px"><h1>MULTIPLAYER</h1>
+<input id="mpName" class="mpi" style="width:280px" maxlength="16" placeholder="Your name">
+<div class="stnrow mpw" id="mpTabs"><button data-t="rooms">ROOMS</button><button data-t="join">JOIN</button><button data-t="create">CREATE ROOM</button></div>
+<div class="mpw" id="mpP_rooms"><button id="mpList" class="mps">REFRESH</button><div id="mpRooms"></div></div>
+<div class="mpw" id="mpP_join" style="display:none"><input id="mpJName" class="mpi" maxlength="24" placeholder="Room name"><input id="mpJPw" class="mpi" type="password" maxlength="32" placeholder="Password (if any)"><button id="mpJoin">JOIN</button></div>
+<div class="mpw" id="mpP_create" style="display:none"><input id="mpCName" class="mpi" maxlength="24" placeholder="Room name"><input id="mpCPw" class="mpi" type="password" maxlength="32" placeholder="Password (optional)">
+<div class="mpr"><span>Mode</span><button id="mpCMode" class="mps"></button></div>
+<div class="mpr"><span>Players</span><span class="mpstep"><button id="mpCDec" class="mps">-</button><b id="mpCMax"></b><button id="mpCInc" class="mps">+</button></span></div>
+<div class="mpr"><span>Type</span><button id="mpCPvp" class="mps"></button></div>
+<div class="mpr"><span>Map</span><select id="mpCMap" class="mpi" style="width:60%"><option value="default">Open sea</option></select></div>
+<div class="mpr"><span>Visibility</span><button id="mpCPub" class="mps"></button></div>
+<button id="mpHost">CREATE</button></div>
+<div id="mpLog" class="mpw" style="font-size:12px;min-height:40px;white-space:pre-wrap"></div>
 <button id="mpPing" style="display:none">PING</button><button id="mpLeave" style="display:none">LEAVE ROOM</button><button id="mpBack">BACK</button></div>
 <div class="ov" id="settings"><h1>SETTINGS</h1><div class="row"><span class="lbl">Radar sweep</span><button id="sweepB" style="width:100px">On</button></div><button id="backB">BACK</button></div>
 <script src="sim.js"></script>
@@ -640,14 +648,32 @@ const mpH={ onStatus:mpLog, onPeer:(id,n,s)=>{ if(s==="open"){ mpOpen.add(id); $
   mpLog((mpS&&mpS.role==="host"?"Room "+mpS.code+"\nPlayers connected: "+mpOpen.size+"\nPress BACK, then START to run the game.":id+": "+s)); },
   onMsg:(from,m)=>{ if(mpS&&mpS.role==="host"){ if(m&&m.t==="cmd") Sim.enqueue(mpInbox,from,m); } else if(m.t==="view") guestView(m.v,m.ts); else if(m.t==="err") guestErr(m.msg,m.seq); else if(m.t==="ack") guestAck(m); }, onRtt:(id,ms)=>mpLog("Ping "+id+": "+ms+" ms"), onEnd:r=>{ if(guest){ try{ sessionStorage.setItem("emcon.mp","Disconnected: "+r); }catch(e){} location.reload(); return; } mpLog("Disconnected: "+r); mpS=null; mpOpen.clear(); $("mpPing").style.display="none"; $("mpLeave").style.display="none"; } };
 const mpName=()=>$("mpName").value.trim()||"Player";
-$("mpB").onclick=()=>{ $("menu").classList.remove("show"); $("mp").classList.add("show"); };
 $("mpBack").onclick=()=>{ $("mp").classList.remove("show"); $("menu").classList.add("show"); };
 try{ const m=sessionStorage.getItem("emcon.mp"); if(m){ sessionStorage.removeItem("emcon.mp"); mpLog(m); $("menu").classList.remove("show"); $("mp").classList.add("show"); } }catch(e){}
 $("mpLeave").onclick=()=>{ if(mpS){ mpS.close(); mpS=null; } if(guest){ try{ sessionStorage.setItem("emcon.mp","Left the room."); }catch(e){} location.reload(); return; } mpOpen.clear(); for(const id of ["mpPing","mpLeave"]) $(id).style.display="none"; mpLog("Left the room."); }; // a guest reloads: the local game state was replaced by the host's view
-$("mpHost").onclick=async()=>{ if(mpS) mpS.close(); mpLog("Creating room..."); try{ mpS=await Net.host({name:mpName()+"'s room",player:mpName(),public:true,max:4},mpH); mpLog("Room code: "+mpS.code+"\nWaiting for players..."); }catch(e){ mpLog("Error: "+e.message); } };
-$("mpJoin").onclick=async()=>{ if(mpS) mpS.close(); mpLog("Joining..."); try{ mpS=await Net.join($("mpCode").value,mpName(),mpH); mpLog("In room "+mpS.code+"\nConnecting to host..."); }catch(e){ mpLog("Error: "+e.message); } };
+const mpErr=e=>mpLog("Error: "+e.message);
+const MPC={mode:"crew",pvp:"pvp",pub:true,max:4}, MPMAX={crew:16,solo:10};
+function mpCUi(){ MPC.max=Math.max(2,Math.min(MPMAX[MPC.mode],MPC.max)); $("mpCMode").textContent=MPC.mode==="crew"?"CREW (4 per ship)":"SOLO SHIP (1 per ship)"; $("mpCMax").textContent=MPC.max; $("mpCPvp").textContent=MPC.pvp==="pvp"?"PvP":"PvE"; $("mpCPub").textContent=MPC.pub?"PUBLIC LIST":"HIDDEN (name only)"; }
+$("mpCMode").onclick=()=>{ MPC.mode=MPC.mode==="crew"?"solo":"crew"; mpCUi(); };
+$("mpCDec").onclick=()=>{ MPC.max--; mpCUi(); }; $("mpCInc").onclick=()=>{ MPC.max++; mpCUi(); };
+$("mpCPvp").onclick=()=>{ MPC.pvp=MPC.pvp==="pvp"?"pve":"pvp"; mpCUi(); }; $("mpCPub").onclick=()=>{ MPC.pub=!MPC.pub; mpCUi(); };
+function mpTab(t){ for(const b of $("mpTabs").children) b.classList.toggle("on",b.dataset.t===t); for(const k of ["rooms","join","create"]) $("mpP_"+k).style.display=k===t?"":"none"; if(t==="rooms") mpRefresh(); }
+for(const b of $("mpTabs").children) b.onclick=()=>mpTab(b.dataset.t);
+$("mpB").onclick=()=>{ $("menu").classList.remove("show"); $("mp").classList.add("show"); mpCUi(); mpTab("rooms"); };
+const MPMODE={crew:"Crew (up to 4 per ship)",solo:"Solo ship (1 per ship)"}, MPMAP={default:"Open sea"};
+async function mpRefresh(){ const el=$("mpRooms"); el.textContent="Loading..."; try{ const l=await Net.list(); el.innerHTML=""; if(!l.length) el.textContent="No public rooms. Create one!";
+  l.forEach(r=>{ const d=document.createElement("div"); d.className="rm"; const h=document.createElement("div"); h.className="rh"; h.innerHTML="<span></span><span></span>"; h.children[0].textContent=(r.locked?"\u{1F512} ":"")+r.name; h.children[1].textContent=r.players+"/"+r.max; d.appendChild(h);
+    let det=null; h.onclick=()=>{ if(det){ det.remove(); det=null; return; } det=document.createElement("div"); det.className="rd"; det.onclick=e=>e.stopPropagation();
+      det.innerHTML="<div>Map: <span class=m></span></div><div>Mode: <span class=mo></span></div><div>Type: <span class=t></span></div><div class=s></div>"; det.querySelector(".m").textContent=MPMAP[r.scenario]||r.scenario; det.querySelector(".mo").textContent=MPMODE[r.mode]||r.mode||"Crew"; det.querySelector(".t").textContent=r.pvp==="pve"?"PvE":"PvP";
+      det.querySelector(".s").textContent=r.started?"Match in progress: you will spectate and play next round.":"Waiting to start.";
+      let pw=null; if(r.locked){ pw=document.createElement("input"); pw.type="password"; pw.className="mpi"; pw.placeholder="Password"; pw.maxLength=32; det.appendChild(pw); }
+      const j=document.createElement("button"); j.textContent=r.players>=r.max?"ROOM FULL":"JOIN"; j.disabled=r.players>=r.max; j.onclick=()=>mpJoinBy({code:r.code,password:pw?pw.value:""}); det.appendChild(j); d.appendChild(det); };
+    el.appendChild(d); }); }catch(e){ el.textContent="Error: "+e.message; } }
+$("mpList").onclick=mpRefresh;
+async function mpJoinBy(o){ if(mpS) mpS.close(); mpLog("Joining..."); try{ mpS=await Net.joinBy(Object.assign({player:mpName()},o),mpH); mpLog("In room "+mpS.code+"\nConnecting to host..."); }catch(e){ mpErr(e); } }
+$("mpJoin").onclick=()=>{ const n=$("mpJName").value.trim(); if(!n){ mpLog("Enter the room name."); return; } mpJoinBy({name:n,password:$("mpJPw").value}); };
+$("mpHost").onclick=async()=>{ const n=$("mpCName").value.trim(); if(!n){ mpLog("Enter a room name."); return; } if(mpS) mpS.close(); mpLog("Creating room..."); try{ mpS=await Net.host({name:n,password:$("mpCPw").value,mode:MPC.mode,pvp:MPC.pvp,public:MPC.pub,max:MPC.max,scenario:$("mpCMap").value,player:mpName()},mpH); mpLog("Room \""+n+"\" created.\nWaiting for players..."); }catch(e){ mpErr(e); } };
 $("mpPing").onclick=()=>{ if(!mpS) return; if(mpS.role==="guest") mpS.ping("host"); else Object.keys(mpS.dcs).forEach(id=>mpS.ping(id)); };
-$("mpList").onclick=async()=>{ const el=$("mpRooms"); el.textContent="Loading..."; try{ const l=await Net.list(); el.innerHTML=l.length?"":"No public rooms."; l.forEach(r=>{ const b=document.createElement("div"); b.textContent=r.code+"  "+r.name+"  "+r.players+"/"+r.max; b.style.cssText="padding:6px 0;cursor:pointer;color:#ddd"; b.onclick=()=>{ $("mpCode").value=r.code; }; el.appendChild(b); }); }catch(e){ el.textContent="Error: "+e.message; } };
 $("setB").onclick=()=>{ $("menu").classList.remove("show"); $("settings").classList.add("show"); };
 $("backB").onclick=()=>{ $("settings").classList.remove("show"); $("menu").classList.add("show"); };
 $("sweepB").onclick=()=>{ sweepOn=!sweepOn; try{localStorage.setItem("emcon.sweep",sweepOn?"1":"0");}catch(e){} sweepUi(); };

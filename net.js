@@ -2,7 +2,7 @@
 // Slice 1: connect + ping test only. Game messages (cmd/view) come later over the same channel.
 (function (root) {
   const BASE = "https://emissioncontrol.caydanphoenix14.workers.dev";
-  const api = async (path, opt) => { const r = await fetch(BASE + path, opt); if (!r.ok) throw new Error((await r.text()) || r.status); return r.json(); };
+  const api = async (path, opt) => { const r = await fetch(BASE + path, opt); if (!r.ok) { const t = await r.text(); let m = t; try { m = JSON.parse(t).error || t; } catch (e) {} throw new Error(m || r.status); } return r.json(); };
   const iceServers = async () => { try { return (await api("/turn")).iceServers; } catch (e) { return [{ urls: "stun:stun.cloudflare.com:3478" }]; } };
 
   // handlers: onStatus(str), onPeer(id,name,"open"|"closed"), onMsg(from,obj), onRtt(id,ms), onEnd(reason)
@@ -61,9 +61,13 @@
 
   root.Net = {
     list: () => api("/rooms").then(j => j.rooms || []),
-    async host(opts, h) { // opts {name, scenario, public, max, player}
+    async host(opts, h) { // opts {name, scenario, public, mode, pvp, password, max, player}
       const r = await api("/rooms", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(opts) });
       const S = make(h); await S.open(BASE.replace("https", "wss") + "/ws/" + r.code + "?token=" + r.hostToken + "&name=" + encodeURIComponent(opts.player || "Host")); return S;
+    },
+    async joinBy(o, h) { // o {name | code, password, player}: the Worker checks the password and hands back the code + a one-minute ticket
+      const r = await api("/join", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: o.name, code: o.code, password: o.password }) });
+      const S = make(h); await S.open(BASE.replace("https", "wss") + "/ws/" + r.code + "?name=" + encodeURIComponent(o.player || "Guest") + (r.ticket ? "&ticket=" + r.ticket : "")); return S;
     },
     async join(code, name, h) { const S = make(h); code = String(code || "").trim().toUpperCase(); await S.open(BASE.replace("https", "wss") + "/ws/" + code + "?name=" + encodeURIComponent(name || "Guest")); return S; },
   };

@@ -1,15 +1,16 @@
 // Pure signaling logic (no Cloudflare APIs): room codes, input cleaning, message routing, room list. Tested in node (tests/signal.test.mjs).
 export const CODE_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O/1/I
-export const LIMITS = { MSG_BYTES: 8192, NAME: 24, TTL_MS: 120000, LIST: 50, MAX_MIN: 2, MAX_MAX: 8 };
+export const LIMITS = { MSG_BYTES: 8192, NAME: 24, TTL_MS: 120000, LIST: 50, MAX_MIN: 2, MAX_MAX: 16, SOLO_MAX: 10, PW: 32 };
 
 export function genCode(rand, n = 4) { let s = ""; for (let i = 0; i < n; i++) s += CODE_ALPHABET[Math.floor(rand() * CODE_ALPHABET.length)]; return s; }
+export const nameKey = n => String(n == null ? "" : n).trim().toLowerCase(); // room names are unique case-insensitively
 export const normCode = c => String(c == null ? "" : c).toUpperCase().replace(/[^A-Z0-9]/g, "");
 export function cleanName(s, fallback) { const t = String(s == null ? "" : s).replace(/[\u0000-\u001f\u007f<>]/g, "").trim().slice(0, LIMITS.NAME); return t || fallback; }
 
 export function roomInit(b) {
   b = b && typeof b === "object" ? b : {};
-  const mx = Math.round(Number(b.max)) || 4;
-  return { name: cleanName(b.name, "Room"), scenario: cleanName(b.scenario, "default"), public: b.public === true, max: Math.max(LIMITS.MAX_MIN, Math.min(LIMITS.MAX_MAX, mx)) };
+  const mx = Math.round(Number(b.max)) || 4, mode = b.mode === "solo" ? "solo" : "crew";
+  return { name: cleanName(b.name, "Room"), scenario: cleanName(b.scenario, "default"), public: b.public === true, mode, pvp: b.pvp === "pve" ? "pve" : "pvp", max: Math.max(LIMITS.MAX_MIN, Math.min(mode === "solo" ? LIMITS.SOLO_MAX : LIMITS.MAX_MAX, mx)), password: String(b.password == null ? "" : b.password).slice(0, LIMITS.PW) };
 }
 
 const RELAY = new Set(["offer", "answer", "ice"]);
@@ -27,5 +28,5 @@ export function route(role, from, msg, guestIds) {
 // listRooms(entries, now): public, still-alive (heartbeat within TTL) rooms, newest first, public fields only (never the host token).
 export function listRooms(entries, now) {
   return entries.filter(e => e.public && now - e.updated <= LIMITS.TTL_MS).sort((a, b) => b.updated - a.updated).slice(0, LIMITS.LIST)
-    .map(e => ({ code: e.code, name: e.name, scenario: e.scenario, players: e.players, max: e.max }));
+    .map(e => ({ code: e.code, name: e.name, scenario: e.scenario, mode: e.mode, pvp: e.pvp, started: !!e.started, locked: !!e.locked, players: e.players, max: e.max }));
 }

@@ -16,9 +16,11 @@ test("codes: alphabet, length, normalisation", () => {
   assert.ok(!/[01OI]/.test(CODE_ALPHABET)); assert.equal(normCode(" k7-qf "), "K7QF");
 });
 test("roomInit cleans input and clamps max", () => {
-  assert.deepEqual(roomInit({ name: "  <b>Hi</b>\n", scenario: "x".repeat(99), public: true, max: 50 }), { name: "bHi/b", scenario: "x".repeat(LIMITS.NAME), public: true, max: LIMITS.MAX_MAX });
-  assert.deepEqual(roomInit(null), { name: "Room", scenario: "default", public: false, max: 4 });
+  assert.deepEqual(roomInit({ name: "  <b>Hi</b>\n", scenario: "x".repeat(99), public: true, max: 50 }), { name: "bHi/b", scenario: "x".repeat(LIMITS.NAME), public: true, mode: "crew", pvp: "pvp", max: LIMITS.MAX_MAX, password: "" });
+  assert.deepEqual(roomInit(null), { name: "Room", scenario: "default", public: false, mode: "crew", pvp: "pvp", max: 4, password: "" });
   assert.equal(roomInit({ max: 1 }).max, 2); assert.equal(roomInit({ public: "yes" }).public, false);
+  assert.equal(roomInit({ mode: "solo", max: 50 }).max, 10, "solo ship mode: up to 10"); assert.equal(roomInit({ mode: "crew", max: 50 }).max, 16, "crew mode: up to 16");
+  assert.equal(roomInit({ mode: "x", pvp: "pve" }).mode, "crew"); assert.equal(roomInit({ pvp: "pve" }).pvp, "pve"); assert.equal(roomInit({ password: "p".repeat(99) }).password.length, LIMITS.PW);
 });
 test("route: guests only reach the host, host addresses guests, kick is host-only, junk refused", () => {
   const g = ["g1", "g2"];
@@ -43,7 +45,7 @@ test("worker: POST /rooms makes a room, /rooms list shows only public rooms with
   await lobbyDo.fetch(new Request("https://l/upsert", { method: "POST", body: JSON.stringify({ code: pub.code, name: "Alpha", scenario: "default", public: true, max: 4, players: 2 }) }));
   await lobbyDo.fetch(new Request("https://l/upsert", { method: "POST", body: JSON.stringify({ code: priv.code, name: "Beta", scenario: "default", public: false, max: 4, players: 1 }) }));
   const list = await worker.fetch(new Request("https://x/rooms"), env).then(r => r.json());
-  assert.deepEqual(list.rooms, [{ code: pub.code, name: "Alpha", scenario: "default", players: 2, max: 4 }]);
+  assert.deepEqual(list.rooms, [{ code: pub.code, name: "Alpha", scenario: "default", mode: undefined, pvp: undefined, started: false, locked: false, players: 2, max: 4 }].map(r => JSON.parse(JSON.stringify(r))));
 });
 test("worker: ws errors (not found, no upgrade, bad token, host not connected); /turn falls back to STUN; CORS", async () => {
   const { env } = mkRoomEnv(), { code, hostToken } = await worker.fetch(new Request("https://x/rooms", { method: "POST", body: "{}" }), env).then(r => r.json());
@@ -86,4 +88,35 @@ test("Room: relay, peer events, kick, guest leave, host leave ends the room and 
   assert.equal(await ctx.storage.get("meta"), undefined, "room storage wiped");
   assert.equal((await lobbyDo.fetch(new Request("https://l/list")).then(r => r.json())).rooms.length, 0, "delisted");
   void hostToken; void meta;
+});
+
+test("worker: room names are unique (case-insensitive, hidden rooms too), freed when the host leaves", async () => {
+  const { env, rooms } = mkRoomEnv(), post = (b, e = env) => worker.fetch(new Request("https://x/rooms", { method: "POST", body: JSON.stringify(b) }), e);
+  assert.equal((await post({ name: "Alpha" })).status, 200);
+  const dup = await post({ name: " alpha ", public: true }); assert.equal(dup.status, 409); assert.match((await dup.json()).error, /already exists/);
+  assert.equal((await post({ name: "Beta" })).status, 200);
+  const { code } = await post({ name: "Gamma" }).then(r => r.json()); const room = rooms.get(code);
+  const host = mkSock({ id: "host", role: "host", name: "H" }); room.ctx.sockets.push(host); await room.gone(host);
+  assert.equal((await post({ name: "gamma" })).status, 200, "name free again after the host left");
+});
+test("worker: join by name + password (ticket), wrong password, hidden room, full room, started flag in the list", async () => {
+  const { env, rooms } = mkRoomEnv(), post = (p, b) => worker.fetch(new Request("https://x" + p, { method: "POST", body: JSON.stringify(b) }), env);
+  const { code } = await post("/rooms", { name: "Secret", password: "pw1", public: true, mode: "solo", pvp: "pve", max: 3 }).then(r => r.json());
+  const room = rooms.get(code); assert.ok(!JSON.stringify([...room.ctx.storage.m.values()]).includes("pw1"), "password is stored hashed only");
+  assert.equal((await post("/join", { name: "secret", password: "pw1" })).status, 409, "host not connected yet");
+  const host = mkSock({ id: "host", role: "host", name: "H" }); room.ctx.sockets.push(host); await room.report(await room.ctx.storage.get("meta"));
+  assert.equal((await post("/join", { name: "nobody" })).status, 404);
+  assert.equal((await post("/join", { name: "Secret", password: "bad" })).status, 403);
+  const ok = await post("/join", { name: "SECRET", password: "pw1" }).then(r => r.json()); assert.equal(ok.code, code); assert.equal(ok.ticket.length, 24);
+  const ws = q => worker.fetch(new Request("https://x/ws/" + code + q, { headers: { Upgrade: "websocket" } }), env);
+  assert.equal((await ws("")).status, 403, "no ticket"); assert.equal((await ws("?ticket=nope")).status, 403);
+  const list = await worker.fetch(new Request("https://x/rooms"), env).then(r => r.json());
+  assert.deepEqual([list.rooms[0].locked, list.rooms[0].mode, list.rooms[0].pvp, list.rooms[0].started, list.rooms[0].players], [true, "solo", "pve", false, 1]);
+  await room.webSocketMessage(host, JSON.stringify({ t: "meta", started: true }));
+  assert.equal((await worker.fetch(new Request("https://x/rooms"), env).then(r => r.json())).rooms[0].started, true);
+  room.ctx.sockets.push(mkSock({ id: "g1", role: "guest" }), mkSock({ id: "g2", role: "guest" }));
+  assert.equal((await post("/join", { code, password: "pw1" })).status, 409, "full: host + 2 guests = max 3");
+  const { code: hc } = await post("/rooms", { name: "Hidden" }).then(r => r.json()); const hr = rooms.get(hc); hr.ctx.sockets.push(mkSock({ id: "host", role: "host" }));
+  assert.equal((await post("/join", { name: "hidden" }).then(r => r.json())).code, hc, "hidden rooms are joinable by name");
+  assert.ok(!(await worker.fetch(new Request("https://x/rooms"), env).then(r => r.json())).rooms.some(r => r.code === hc));
 });
