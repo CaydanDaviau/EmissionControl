@@ -427,7 +427,6 @@
   function offlineScenario(match) {
     const U = match.units, me = U.find(isShip), al = U.filter(u => u !== me && u.team === me.team), en = U.filter(u => u.team !== me.team);
     delete me.id; al.forEach((u, i) => { u.id = "A" + (i + 1); }); en.forEach((u, i) => { u.id = i + 1; });
-    if (al[0]) { al[0].escort = true; al[0].ai.wp = null; al[0].x = me.x + CFG.ALLY.OFFSET; al[0].y = me.y; }
     return match;
   }
   // ---- team LINK / FIX (world step): every unit of a team that is LINKED (AI units always, humans with LINK on, sensors alive) shares tracks and ESM bearings with the others ----

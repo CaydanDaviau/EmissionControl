@@ -77,7 +77,7 @@ tr.lost{opacity:.45}
 .tags button{flex:1;padding:10px 2px;font-size:12px}
 button:disabled{opacity:.35}
 #selInfo{color:var(--dim);margin-bottom:6px}
-.ov{position:fixed;inset:0;z-index:20;background:rgba(0,0,0,.94);display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px}
+body.pre .ov{background:#000}.ov{position:fixed;inset:0;z-index:20;background:rgba(0,0,0,.94);display:none;flex-direction:column;align-items:center;justify-content:center;gap:14px}
 .ov.show{display:flex}
 .ov h1{margin:0 0 10px;letter-spacing:4px;font-weight:normal}
 .ov button{width:220px;padding:14px}
@@ -104,7 +104,7 @@ body.guest .dbg,body.guest #tsB{display:none}
 }
 </style>
 </head>
-<body>
+<body class="pre">
 <div id="app">
   <div id="top">
     <button id="menuB">&#9776;</button>
@@ -615,7 +615,7 @@ cv.addEventListener("pointerdown",e=>{
 // ---- menu / settings ----
 function showMenu(on){ S.paused=on; $("menu").classList.toggle("show",on); }
 function sweepUi(){ $("sweepB").textContent=sweepOn?"On":"Off"; $("sweepB").classList.toggle("off",!sweepOn); }
-$("startB").onclick=()=>{ $("startB").style.display=""; showMenu(false); }; // RESUME (hidden until a game is running)
+$("startB").onclick=()=>{ document.body.classList.remove("pre"); $("startB").style.display=""; showMenu(false); }; // RESUME (hidden until a game is running)
 try{ if(sessionStorage.getItem("emcon.spgo")){ sessionStorage.removeItem("emcon.spgo"); $("startB").click(); } }catch(e){} // a singleplayer START reloads the page with the chosen options and goes straight into the game
 function spUi(){ $("spA").textContent=SPO.a; $("spB2").textContent=SPO.b; const t=Lobby.SHIP_TYPES.find(x=>x.id===SPO.ship); $("spShip").textContent=t?t.name:SPO.ship; }
 $("spB").onclick=()=>{ $("menu").classList.remove("show"); $("sp").classList.add("show"); spUi(); };
@@ -651,7 +651,7 @@ function applyView(v){
 function guestView(v,ts){ gTs=ts===undefined?1:ts;
   const first=!guest; guest=true; $("room").classList.remove("show"); if(first){ ship.trk={}; gC.clear(); } // drop the track records of the local game: the shadow contacts get their own
   applyView(v);
-  if(first){ document.body.classList.add("guest"); $("mp").classList.remove("show"); showMenu(false); $("startB").style.display=""; $("aiDbg").style.display="none"; seenHit=ship.hitSeq; seenStrike=ship.strikeSeq||0; ui(); sensUi(); applyDmg(); }
+  if(first){ document.body.classList.add("guest"); $("mp").classList.remove("show"); showMenu(false); document.body.classList.remove("pre"); $("startB").style.display=""; $("aiDbg").style.display="none"; seenHit=ship.hitSeq; seenStrike=ship.strikeSeq||0; ui(); sensUi(); applyDmg(); }
 }
 function guestCmd(o){ const a=Object.assign({},o), now=performance.now(); delete a.type;
   if(o.type==="set_course"&&isFinite(+o.hdg)){ ship.ordHdg=Sim.norm(+o.hdg); gHold.hdg=now+1200; } else if(o.type==="set_speed"&&isFinite(+o.kt)){ ship.ordSpd=+o.kt; gHold.spd=now+1200; }

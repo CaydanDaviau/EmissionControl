@@ -778,10 +778,10 @@ test("world: stepWorld runs a 2-human + AI match (moves, sensors, AI, missiles) 
 test("offlineScenario: player (key own), escort ally A1 and enemies 1,2 run under stepWorld", () => {
   const L = require("../lobby.js"), r = L.newRoom({ name: "o", mode: "solo", max: 4 }, "me", "P"); L.move(r, "me", "A");
   const m = Sim.offlineScenario(Sim.buildMatch(r, 20261114)), W = Sim.newWorld(m), me = W.ref, al = W.units.find(u => u.id === "A1"), en = W.units.filter(u => u.team === "red");
-  assert.equal(me.id, undefined); assert.equal(W.units.length, 4); assert.deepEqual(en.map(e => e.id), [1, 2]); assert.ok(al.escort);
+  assert.equal(me.id, undefined); assert.equal(W.units.length, 4); assert.deepEqual(en.map(e => e.id), [1, 2]);
   assert.ok(Math.abs(en[0].y - me.y - 70) < 1e-6, "teams start 70 nm apart"); assert.equal(me.x, 0); assert.ok(en[0].x !== en[1].x);
   me.ordSpd = 15; for (let i = 0; i < 600; i++) Sim.stepWorld(W, 0.1, 0.1); // 60 s
-  assert.ok(me.y > -34.9); assert.ok(al.spd > 0); assert.ok(Math.abs(al.x - me.x) < 30);
+  assert.ok(me.y > -34.9); assert.ok(al.spd > 0); assert.ok(!al.escort, "no escort special case");
 });
 
 test("buildMatch: per-team counts (uneven) and 5 spawn slots per side, extra ships queue behind", () => {
