@@ -807,3 +807,8 @@ test("teamLinkStep: linked units share tracks and cross ESM bearings team-wide; 
   h.link = false; g.link = false; for (const u of [g, ai]) { const x = Sim.trkOf(u, en); x.tracked = false; x.lk = false; } Sim.teamLinkStep(W, 0.1);
   assert.ok(!Sim.trkOf(g, en).tracked, "LINK off: nothing shared");
 });
+
+test("buildMatch: AI patrol boxes lie ahead of the spawn, toward the other team", () => {
+  const L = require("../lobby.js"), r = L.newRoom({ name: "p", mode: "solo", max: 4 }, "me", "P"); L.move(r, "me", "A"); r.counts = { A: 2, B: 2 };
+  const m = Sim.buildMatch(r, 5); for (const s of m.ships) { const u = s.unit; if (!u.ai) continue; const toward = s.team === "A" ? 1 : -1; assert.ok(u.ai.wp.every(w => (w[1] - u.y) * toward > 0), s.id + " patrols toward the enemy"); }
+});

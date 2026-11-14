@@ -413,7 +413,7 @@
     const mkHuman = (id, t, type, pids, seats) => { const u = newShip(); u.id = id; u.pids = pids; u.type = type; initUnit(u, TEAM[t], "human", (seed | 0) + out.length * 101 + 7); u.radar = newRadar((seed | 0) + out.length * 103 + 5);
       u.seats = [0, 1, 2, 3].map(i => seats(i)); return u; };
     const mkAi = (id, t, type, k, n) => { const c = newContact(id, 0, 1, { side: "enemy", speed: 15, emit: { name: t === "A" ? "AN/SPY-1D" : "Type 346B", range: CFG.RADAR.RANGE } }); const { x, y } = spot(t, k), d = -SIDE[t]; // patrol box ahead of the spawn (toward the other team)
-      c.x = x; c.y = y; c.hdg = t === "A" ? 0 : 180; c.ordHdg = c.hdg; c.type = type; c.pids = []; c.ai = newAi((seed | 0) + out.length * 131 + 11, [[x + 10, y + 2 * -d], [x + 10, y + 14 * -d], [x - 10, y + 14 * -d], [x - 10, y + 2 * -d]]); initUnit(c, TEAM[t], "ai", (seed | 0) + out.length * 137 + 13); return c; };
+      c.x = x; c.y = y; c.hdg = t === "A" ? 0 : 180; c.ordHdg = c.hdg; c.type = type; c.pids = []; c.ai = newAi((seed | 0) + out.length * 131 + 11, [[x + 10, y + 2 * d], [x + 10, y + 14 * d], [x - 10, y + 14 * d], [x - 10, y + 2 * d]]); initUnit(c, TEAM[t], "ai", (seed | 0) + out.length * 137 + 13); return c; };
     for (const t of ["A", "B"]) {
       const list = [];
       if (room.mode === "crew") room.ships[t].forEach((sh, i) => { const pids = room.players.filter(p => p.team === t && p.ship === i).map(p => p.id); list.push({ type: sh.type, pids, roles: sh.roles }); });
