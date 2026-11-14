@@ -751,3 +751,15 @@ test("buildMatch: solo mode gives each team player one ship with all seats, AI f
   assert.deepEqual(A[1].unit.seats, [["g1"], ["g1"], ["g1"], ["g1"]]); assert.equal(A[2].unit.ctl, "ai");
   assert.deepEqual(Sim.seatsOf(A[1].unit, "g1"), [true, true, true, true]); assert.deepEqual(Sim.seatsOf(A[1].unit, "host"), [false, false, false, false]);
 });
+
+test("teams: a red human ship is hit by a blue AI missile (own banner), and its defenses see blue missiles as hostile", () => {
+  const L = require("../lobby.js"), r = L.newRoom({ name: "R", mode: "solo", max: 4 }, "host", "H"); L.add(r, "g1", "G"); L.move(r, "host", "A"); L.move(r, "g1", "B");
+  const mt = Sim.buildMatch(r, 3), A = mt.ships.find(s => s.id === "a2").unit, B = mt.ships.find(s => s.id === "b1").unit, ms = [];
+  assert.equal(A.ctl, "ai"); assert.equal(B.team, "red"); Sim.CFG.DAMAGE.P_HIT = 1;
+  const m = Sim.launchMissile(A, "asm", { tid: "b1" }, ms, A); assert.equal(m.team, "blue"); assert.equal(m.from, "a2");
+  m.x = B.x; m.y = B.y - 0.1; m.tx = undefined;
+  Sim.stepMissiles(ms, [], 0.1, A, null, [B]); Sim.CFG.DAMAGE.P_HIT = 0.9;
+  assert.equal(ms.length, 0); assert.ok(/HIT/.test(B.hitMsg) && B.hitSeq === 1 && B.dead.some(Boolean), B.hitMsg); assert.ok(!A.hitMsg);
+  const m2 = Sim.launchMissile(A, "ssm", { tid: "b1" }, ms, A); m2.x = B.x; m2.y = B.y + 5; const v = Sim.viewFor(mt.units, ms, B, "g1");
+  assert.ok(v.missiles[0].atMe, "viewer b1 is the target");
+});
