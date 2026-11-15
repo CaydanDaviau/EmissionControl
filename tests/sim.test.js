@@ -845,3 +845,11 @@ test("spectator view: no station held, even on an AI unit", () => {
   const M = Sim.buildMatch(r, 2), ai = M.units.find(u => u.ctl === "ai"), v = Sim.viewFor(M.units, [], ai, "spec1", true);
   assert.deepEqual(v.own.holds, [false, false, false, false]); assert.equal(Sim.unitOf({ units: M.units }, "spec1"), null);
 });
+
+test("SAM default target rule is team-based (red ship vs missile whose side is host-relative)", () => {
+  const red = Sim.newShip(); red.team = "red";
+  const m = { uid: 7, n: 1, side: "own", team: "blue", from: "a1", w: "ssm", tid: "b1", x: 0, y: 10, hdg: 180, spd: 480, fuel: 100 };
+  assert.equal(Sim.launchSam(red, [m], 7), "SAM launched.");
+  const blue = Sim.newShip(); blue.team = "blue";
+  assert.match(Sim.launchSam(blue, [Object.assign({}, m, { uid: 8 })], 8), /Select a live/, "own-team missile is not a valid SAM target");
+});

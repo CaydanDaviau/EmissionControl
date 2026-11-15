@@ -321,7 +321,7 @@
     return n ? "Decoy deployed: " + n + " missile(s) seduced." : near ? "Decoy deployed: no effect." : "Decoy deployed: no missile within " + D.RANGE + " NM.";
   }
   function launchSam(ship, missiles, uid, mine) { // mine(m) = which missiles may be engaged (default: any live enemy missile)
-    const S = CFG.DEFENSE.SAM, m = missiles.find(k => k.uid === uid), why = defCheck(ship), ok = mine || live;
+    const S = CFG.DEFENSE.SAM, m = missiles.find(k => k.uid === uid), why = defCheck(ship), ok = mine || (k => !k.state && hostileTo(ship, k));
     if (why) return why; if (!m || !ok(m)) return "Select a live incoming missile."; if (ship.def.sam <= 0) return "No SAM ammo."; if ((ship.def.samCd || 0) > 0) return "SAM reloading: " + Math.ceil(ship.def.samCd) + " s.";
     const d = mdist(ship, m); if (d > S.RANGE) return "Out of SAM range: " + d.toFixed(1) + " / " + S.RANGE + " NM.";
     ship.def.sam--; ship.def.samCd = S.RELOAD; ship.def.sams.push({ uid, x: ship.x, y: ship.y, hdg: norm(Math.atan2(m.x - ship.x, m.y - ship.y) * 180 / Math.PI) }); return "SAM launched.";
@@ -338,7 +338,7 @@
   }
   function reloadStep(u, dt) { u.def.cd = Math.max(0, u.def.cd - dt); u.def.samCd = Math.max(0, (u.def.samCd || 0) - dt); } // decoy and SAM reload timers (real dt)
   function ciwsStep(ship, missiles, dt, mine, noReload) { // REAL dt: decoy reload and CIWS rolls are not sped up by the time button. mine(m) = missiles it may shoot at (default: live enemy missiles)
-    const df = ship.def, S = CFG.DEFENSE, ok = mine || live; if (!noReload) reloadStep(ship, dt);
+    const df = ship.def, S = CFG.DEFENSE, ok = mine || (k => !k.state && hostileTo(ship, k)); if (!noReload) reloadStep(ship, dt);
     if (ship.dead[3]) { df.ciwsOn = null; return; }
     let tg = null;
     if (df.ciws != null) { tg = missiles.find(k => k.uid === df.ciws && ok(k)); if (!tg) df.ciws = null; } // manual target gone: back to auto
